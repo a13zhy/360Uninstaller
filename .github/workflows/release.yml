@@ -1,0 +1,57 @@
+name: Build Windows Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag"
+        required: true
+        default: "v1.2.5.261109"
+  push:
+    tags:
+      - "v1.2.*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install "PySide6==6.12.0" "Pillow>=10.0.0" "pyinstaller==6.22.3"
+
+      - name: Generate icons
+        run: python tools/make_icon.py
+
+      - name: Build single-file exe
+        run: |
+          pyinstaller --noconfirm --clean --onefile --windowed --name ResidualCleaner --icon assets/app_icon.ico --uac-admin --add-data "assets;assets" --exclude-module tkinter main.py
+
+      - name: Package win64 and source
+        env:
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          Copy-Item README.md dist/README.txt
+          Copy-Item LICENSE dist/LICENSE.txt
+          Copy-Item RELEASE_NOTES.md dist/RELEASE_NOTES.md
+          Compress-Archive -Path dist/ResidualCleaner.exe,dist/README.txt,dist/LICENSE.txt,dist/RELEASE_NOTES.md -DestinationPath "dist/ResidualCleaner-$($env:TAG)-win64.zip" -Force
+          Compress-Archive -Path app,main.py,preview.py,requirements.txt,README.md,LICENSE,RELEASE_NOTES.md,build_exe.bat,run.bat,tools -DestinationPath "dist/ResidualCleaner-$($env:TAG)-src.zip" -Force
+          Get-ChildItem dist | Select-Object Name,Length
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          gh release create "$env:TAG" --title "$env:TAG" --notes-file RELEASE_NOTES.md --latest "dist/ResidualCleaner.exe" "dist/ResidualCleaner-$($env:TAG)-win64.zip" "dist/ResidualCleaner-$($env:TAG)-src.zip"
