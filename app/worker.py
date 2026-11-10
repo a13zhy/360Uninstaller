@@ -4,6 +4,18 @@ from PySide6.QtCore import QThread, Signal
 
 from .scanner import Scanner
 from .uninstaller import UninstallEngine, EngineResult
+from . import registry_utils
+
+
+def _attach_protected(data: dict, log) -> dict:
+    """把被 360 自我保护拦下的注册表项汇总成安全模式清理包。"""
+    protected = registry_utils.consume_protected()
+    if protected:
+        pack = registry_utils.build_safe_mode_pack(protected)
+        data["protected"] = len(protected)
+        data["safe_pack"] = pack
+        log(f"⚠ {len(protected)} 项注册表被 360 自我保护拦截，已生成安全模式清理包：{pack}")
+    return data
 
 
 class Worker(QThread):
@@ -89,7 +101,7 @@ class Worker(QThread):
         self.progress.emit(100, "卸载流程结束")
         data = res.to_dict()
         data["mode"] = self.mode
-        self.result.emit(data)
+        self.result.emit(_attach_protected(data, self.log.emit))
 
     def _do_residual(self):
         deep = bool(self.payload.get("deep", True))
@@ -117,4 +129,4 @@ class Worker(QThread):
         data = res.to_dict()
         data["mode"] = self.mode
         self.progress.emit(100, "删除完成")
-        self.result.emit(data)
+        self.result.emit(_attach_protected(data, self.log.emit))
