@@ -4,7 +4,7 @@ import os
 
 APP_NAME = "残留清理卫士"
 APP_NAME_EN = "ResidualCleaner"
-APP_VERSION = "1.2.5.261109"
+APP_VERSION = "1.2.6.261110"
 APP_TAGLINE = "Windows 深度卸载与残留清理"
 
 LOG_DIR = os.path.join(
