@@ -1,4 +1,8 @@
-"""界面主题：现代浅色主区 + 深色控制台"""
+"""界面主题：深色工业风主区 + 同色系终端控制台
+
+设计取向：方角、细线、低饱和、无卡片阴影；强调色只用琥珀一色，
+危险动作用红描边；数字与日志走等宽字体，避免"AI 模板感"。
+"""
 
 import os
 import sys
@@ -22,34 +26,33 @@ CHECK_URL = asset_path("check.png")
 CHECK_IMG = f'image: url("{CHECK_URL}");' if CHECK_URL else "image: none;"
 
 COLORS = {
-    "bg": "#F2F4F7",
-    "surface": "#FFFFFF",
-    "surface_alt": "#F8FAFC",
-    "border": "#E2E7EE",
-    "border_strong": "#CBD5E1",
-    "text": "#101828",
-    "text_sub": "#475467",
-    "text_muted": "#98A2B3",
-    "accent": "#1E63D6",
-    "accent_hover": "#1852B8",
-    "accent_press": "#12408F",
-    "accent_soft": "#EAF1FD",
-    "teal": "#0E9384",
-    "danger": "#D92D20",
-    "danger_hover": "#B42318",
-    "danger_soft": "#FEF3F2",
-    "success": "#12B76A",
-    "warn": "#F79009",
-    "console_bg": "#0F141A",
-    "console_panel": "#141B23",
-    "console_border": "#232D3A",
-    "console_text": "#C9D6E3",
-    "console_dim": "#7C8DA0",
+    "bg": "#0A0C10",
+    "surface": "#121820",
+    "surface_alt": "#0F141B",
+    "border": "#232C38",
+    "border_strong": "#33404F",
+    "text": "#E9EFF7",
+    "text_sub": "#A7B6C7",
+    "text_muted": "#6B7C90",
+    "accent": "#E0A03C",
+    "accent_hover": "#F2B45A",
+    "accent_press": "#C4861F",
+    "accent_soft": "#2A2114",
+    "teal": "#2E9C8F",
+    "danger": "#E5484D",
+    "danger_hover": "#F26166",
+    "danger_soft": "#2A1416",
+    "success": "#3DCB85",
+    "warn": "#E0A03C",
+    "console_bg": "#06080B",
+    "console_panel": "#090C11",
+    "console_border": "#1B232D",
+    "console_text": "#C4D3E2",
+    "console_dim": "#5E7186",
 }
 
 FONT_UI = "Microsoft YaHei UI"
 FONT_MONO = "Cascadia Mono, Consolas, Courier New"
-
 
 QSS = f"""
 * {{
@@ -60,53 +63,58 @@ QSS = f"""
 QMainWindow, QWidget#Root {{
     background: {COLORS['bg']};
 }}
+
+/* ---------------------------------------------------------------- 顶栏 */
 QWidget#TopBar {{
-    background: {COLORS['surface']};
+    background: {COLORS['surface_alt']};
     border-bottom: 1px solid {COLORS['border']};
 }}
 QLabel#BrandTitle {{
-    font-size: 15pt;
+    font-size: 13.5pt;
     font-weight: 700;
     color: {COLORS['text']};
 }}
 QLabel#BrandSub {{
-    font-size: 9pt;
+    font-size: 8pt;
     color: {COLORS['text_muted']};
 }}
 QLabel#VersionBadge {{
-    background: {COLORS['surface_alt']};
+    background: transparent;
     border: 1px solid {COLORS['border']};
-    border-radius: 10px;
-    padding: 2px 9px;
+    padding: 2px 8px;
     color: {COLORS['text_sub']};
+    font-family: "{FONT_MONO}";
     font-size: 8pt;
 }}
 QLabel#AdminBadge {{
-    background: #ECFDF3;
-    border: 1px solid #ABEFC6;
-    border-radius: 10px;
-    padding: 2px 9px;
-    color: #067647;
+    background: transparent;
+    border: 1px solid {COLORS['border_strong']};
+    padding: 2px 8px;
+    color: {COLORS['text_sub']};
     font-size: 8pt;
-    font-weight: 600;
+}}
+QLabel#AdminBadge[on="true"] {{
+    border: 1px solid #4A3A1B;
+    color: {COLORS['accent']};
 }}
 QLabel#AdminBadge[warn="true"] {{
-    background: #FFFAEB;
-    border: 1px solid #FEDF89;
-    color: #B54708;
+    border: 1px solid #53312F;
+    color: #F28B8E;
 }}
+
+/* ---------------------------------------------------------------- 面板 */
 QFrame#LeftPanel {{
-    background: {COLORS['surface']};
-    border: 1px solid {COLORS['border']};
-    border-radius: 12px;
+    background: {COLORS['bg']};
+    border: none;
+    border-right: 1px solid {COLORS['border']};
 }}
 QFrame#ConsolePanel {{
     background: {COLORS['console_panel']};
-    border: 1px solid {COLORS['console_border']};
-    border-radius: 12px;
+    border: none;
+    border-left: 1px solid {COLORS['border']};
 }}
 QLabel#SectionTitle {{
-    font-size: 11pt;
+    font-size: 12pt;
     font-weight: 700;
     color: {COLORS['text']};
 }}
@@ -114,45 +122,41 @@ QLabel#SectionHint {{
     font-size: 8.5pt;
     color: {COLORS['text_muted']};
 }}
-QLabel#ConsoleTitle {{
-    font-size: 10pt;
-    font-weight: 700;
-    color: #E8EEF5;
+QLabel#RuleLine {{
+    background: {COLORS['border']};
+    max-height: 1px;
+    min-height: 1px;
 }}
-QLabel#ConsoleHint {{
+QWidget#TableHead {{
+    background: transparent;
+}}
+QLabel#HeadCell {{
     font-size: 8pt;
-    color: {COLORS['console_dim']};
+    color: {COLORS['text_muted']};
+}}
+QLabel#HeadCellRight {{
+    font-size: 8pt;
+    color: {COLORS['text_muted']};
+}}
+
+/* ---------------------------------------------------------------- 读数 */
+QFrame#StatCard {{
+    background: transparent;
+    border: none;
+    border-left: 1px solid {COLORS['border']};
 }}
 QLabel#StatValue {{
-    font-size: 16pt;
+    font-family: "{FONT_MONO}";
+    font-size: 17pt;
     font-weight: 700;
     color: {COLORS['text']};
 }}
 QLabel#StatLabel {{
-    font-size: 8.5pt;
+    font-size: 8pt;
     color: {COLORS['text_muted']};
 }}
-QLabel#ConsoleStatValue {{
-    font-size: 13pt;
-    font-weight: 700;
-    color: #E8EEF5;
-}}
-QLabel#ConsoleStatLabel {{
-    font-size: 8pt;
-    color: {COLORS['console_dim']};
-}}
-QFrame#StatCard {{
-    background: {COLORS['surface_alt']};
-    border: 1px solid {COLORS['border']};
-    border-radius: 10px;
-}}
-QFrame#ConsoleStatCard {{
-    background: {COLORS['console_bg']};
-    border: 1px solid {COLORS['console_border']};
-    border-radius: 10px;
-}}
 
-/* 应用列表 */
+/* ---------------------------------------------------------------- 应用列表 */
 QScrollArea#AppScroll {{
     background: transparent;
     border: none;
@@ -161,53 +165,63 @@ QWidget#AppListHost {{
     background: transparent;
 }}
 QFrame#AppRow {{
-    background: {COLORS['surface_alt']};
-    border: 1px solid {COLORS['border']};
-    border-radius: 10px;
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid #161D26;
+    border-left: 2px solid transparent;
 }}
 QFrame#AppRow:hover {{
-    background: {COLORS['accent_soft']};
-    border-color: #BFD3F2;
+    background: #121A23;
 }}
 QFrame#AppRow[checked="true"] {{
-    background: #F0F6FF;
-    border-color: #A6C4F1;
+    background: #151D27;
+    border-left: 2px solid {COLORS['accent']};
+}}
+QFrame#AppRow[dim="true"] {{
+    background: transparent;
 }}
 QLabel#AppName {{
-    font-size: 10pt;
+    font-size: 9.5pt;
     font-weight: 600;
+    color: {COLORS['text']};
 }}
 QLabel#AppDesc {{
-    font-size: 8.5pt;
+    font-size: 8pt;
     color: {COLORS['text_muted']};
 }}
 QLabel#AppState {{
     font-size: 8pt;
-    padding: 1px 8px;
-    border-radius: 8px;
-}}
-QLabel#AppState[state="installed"] {{
-    background: #ECFDF3;
-    color: #067647;
-}}
-QLabel#AppState[state="clean"] {{
-    background: #F2F4F7;
     color: {COLORS['text_muted']};
 }}
+QLabel#AppState[state="installed"] {{
+    color: #55D08C;
+}}
 QLabel#AppState[state="running"] {{
-    background: #EAF1FD;
     color: {COLORS['accent']};
 }}
+QLabel#AppState[state="clean"] {{
+    color: #53657A;
+}}
+QLabel#AppCount {{
+    font-family: "{FONT_MONO}";
+    font-size: 8pt;
+    color: {COLORS['text_sub']};
+}}
+QLabel#AppSize {{
+    font-family: "{FONT_MONO}";
+    font-size: 8pt;
+    color: {COLORS['text_muted']};
+}}
 
+/* ---------------------------------------------------------------- 勾选框 */
 QCheckBox {{
     spacing: 8px;
 }}
 QCheckBox::indicator {{
-    width: 18px;
-    height: 18px;
-    border-radius: 5px;
-    border: 1.5px solid {COLORS['border_strong']};
-    background: {COLORS['surface']};
+    width: 15px;
+    height: 15px;
+    border: 1px solid #44546A;
+    background: #0D1218;
 }}
 QCheckBox::indicator:hover {{
     border-color: {COLORS['accent']};
@@ -218,36 +232,35 @@ QCheckBox::indicator:checked {{
     {CHECK_IMG}
 }}
 QCheckBox::indicator:checked:disabled {{
-    background: #A6C4F1;
-    border-color: #A6C4F1;
+    background: #4A3A1B;
+    border-color: #4A3A1B;
     {CHECK_IMG}
 }}
 
-/* 按钮 */
+/* ---------------------------------------------------------------- 按钮 */
 QPushButton {{
-    background: {COLORS['surface']};
+    background: #131A23;
     border: 1px solid {COLORS['border_strong']};
-    border-radius: 8px;
     padding: 7px 16px;
     color: {COLORS['text']};
 }}
 QPushButton:hover {{
-    background: {COLORS['surface_alt']};
-    border-color: {COLORS['accent']};
+    background: #1A232E;
+    border-color: #46586C;
 }}
 QPushButton:pressed {{
-    background: {COLORS['accent_soft']};
+    background: #0D131A;
 }}
 QPushButton:disabled {{
-    color: {COLORS['text_muted']};
-    border-color: {COLORS['border']};
-    background: {COLORS['surface_alt']};
+    color: #566577;
+    border-color: #232C38;
+    background: #0E131A;
 }}
 QPushButton#Primary {{
     background: {COLORS['accent']};
     border: 1px solid {COLORS['accent']};
-    color: #FFFFFF;
-    font-weight: 600;
+    color: #0B0E12;
+    font-weight: 700;
 }}
 QPushButton#Primary:hover {{
     background: {COLORS['accent_hover']};
@@ -255,26 +268,33 @@ QPushButton#Primary:hover {{
 }}
 QPushButton#Primary:pressed {{
     background: {COLORS['accent_press']};
+    border-color: {COLORS['accent_press']};
 }}
 QPushButton#Primary:disabled {{
-    background: #E3EDFB;
-    border-color: #C6D9F2;
-    color: #7E96B8;
+    background: transparent;
+    border: 1px solid #3B3222;
+    color: #7A6437;
 }}
 QPushButton#Danger {{
-    background: {COLORS['danger']};
-    border: 1px solid {COLORS['danger']};
-    color: #FFFFFF;
+    background: transparent;
+    border: 1px solid #6B3033;
+    color: #F27378;
     font-weight: 600;
 }}
 QPushButton#Danger:hover {{
-    background: {COLORS['danger_hover']};
-    border-color: {COLORS['danger_hover']};
+    background: {COLORS['danger']};
+    border-color: {COLORS['danger']};
+    color: #0B0E12;
+}}
+QPushButton#Danger:pressed {{
+    background: #C23B40;
+    border-color: #C23B40;
+    color: #0B0E12;
 }}
 QPushButton#Danger:disabled {{
-    background: #FBE3E1;
-    border-color: #F3C6C1;
-    color: #BC7B74;
+    background: transparent;
+    border-color: #3A2224;
+    color: #7A4C4F;
 }}
 QPushButton#Ghost {{
     background: transparent;
@@ -282,149 +302,183 @@ QPushButton#Ghost {{
     color: {COLORS['text_sub']};
 }}
 QPushButton#Ghost:hover {{
-    background: {COLORS['surface_alt']};
-    border-color: {COLORS['border']};
+    background: transparent;
+    border: 1px solid {COLORS['border']};
+    color: {COLORS['text']};
 }}
 QPushButton#ConsoleGhost {{
     background: transparent;
     border: 1px solid {COLORS['console_border']};
-    color: #A9BACB;
-    padding: 5px 12px;
+    color: #8FA3B8;
+    padding: 3px 10px;
+    font-size: 8pt;
 }}
 QPushButton#ConsoleGhost:hover {{
-    border-color: #3A4A5E;
-    color: #DCE8F4;
+    border-color: #33455A;
+    color: #D8E4F0;
 }}
 QPushButton#UpdateHot {{
-    background: #FFFAEB;
-    border: 1px solid #FEDF89;
-    color: #B54708;
+    background: {COLORS['accent_soft']};
+    border: 1px solid #4A3A1B;
+    color: {COLORS['accent']};
     font-weight: 600;
 }}
 QPushButton#UpdateHot:hover {{
-    background: #FEF0C7;
-    border-color: #F79009;
+    background: {COLORS['accent']};
+    border-color: {COLORS['accent']};
+    color: #0B0E12;
 }}
 
-/* 进度条 */
+/* ---------------------------------------------------------------- 进度条 */
 QProgressBar {{
-    background: {COLORS['border']};
+    background: #151C25;
     border: none;
-    border-radius: 4px;
-    height: 8px;
     text-align: center;
 }}
 QProgressBar::chunk {{
     background: {COLORS['accent']};
-    border-radius: 4px;
 }}
 QProgressBar#ConsoleBar {{
-    background: {COLORS['console_bg']};
-    border: 1px solid {COLORS['console_border']};
+    background: #141B24;
+    border: none;
 }}
 QProgressBar#ConsoleBar::chunk {{
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 #12B76A, stop:0.5 #1E63D6, stop:1 #0E9384);
-    border-radius: 4px;
+        stop:0 #B87B1E, stop:0.6 #E0A03C, stop:1 #F2B45A);
 }}
 
-/* 控制台 */
+/* ---------------------------------------------------------------- 控制台 */
+QLabel#ConsoleTitle {{
+    font-family: "{FONT_MONO}";
+    font-size: 9pt;
+    font-weight: 700;
+    color: #D6E3F0;
+}}
+QLabel#ConsoleHint {{
+    font-family: "{FONT_MONO}";
+    font-size: 7.5pt;
+    color: {COLORS['console_dim']};
+}}
+QLabel#ConsoleStatValue {{
+    font-family: "{FONT_MONO}";
+    font-size: 12pt;
+    font-weight: 700;
+    color: #E9EFF7;
+}}
+QLabel#ConsoleStatLabel {{
+    font-size: 7.5pt;
+    color: {COLORS['console_dim']};
+}}
+QFrame#ConsoleStatCard {{
+    background: transparent;
+    border: none;
+    border-top: 1px solid {COLORS['console_border']};
+}}
 QPlainTextEdit#Console {{
     background: {COLORS['console_bg']};
     border: 1px solid {COLORS['console_border']};
-    border-radius: 8px;
     color: {COLORS['console_text']};
     font-family: "{FONT_MONO}";
-    font-size: 9pt;
+    font-size: 8.5pt;
     padding: 8px;
-    selection-background-color: #1E63D6;
+    selection-background-color: #3A2E18;
+    selection-color: #F7EBD8;
 }}
 QScrollBar:vertical {{
     background: transparent;
-    width: 12px;
-    margin: 2px 1px 2px 1px;
+    width: 10px;
+    margin: 0px;
 }}
 QScrollBar::handle:vertical {{
-    background: #AEBBC9;
-    border-radius: 5px;
-    min-height: 32px;
+    background: #2B3644;
+    min-height: 30px;
 }}
 QScrollBar::handle:vertical:hover {{
-    background: #8C9CAE;
+    background: #3C4C5E;
 }}
 QScrollBar#ConsoleScroll:vertical {{
     background: transparent;
-    width: 12px;
+    width: 10px;
 }}
 QScrollBar#ConsoleScroll::handle:vertical {{
-    background: #33455A;
-    border-radius: 5px;
-    min-height: 32px;
+    background: #26313D;
+    min-height: 30px;
 }}
 QScrollBar#ConsoleScroll::handle:vertical:hover {{
-    background: #46607C;
+    background: #3A4C60;
 }}
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
     height: 0px;
 }}
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+    background: transparent;
+}}
 QScrollBar:horizontal {{
     background: transparent;
-    height: 10px;
+    height: 8px;
 }}
 QScrollBar::handle:horizontal {{
-    background: #C7D0DB;
-    border-radius: 4px;
+    background: #2B3644;
+}}
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+    width: 0px;
 }}
 
-/* 宣传区 */
+/* ---------------------------------------------------------------- 宣传条 */
 QFrame#PromoCard {{
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-        stop:0 #1E63D6, stop:0.55 #0E9384, stop:1 #0B7285);
+    background: #101720;
     border: none;
-    border-radius: 12px;
+    border-top: 1px solid {COLORS['border']};
+    border-left: 3px solid {COLORS['accent']};
 }}
 QLabel#PromoKicker {{
-    color: rgba(255,255,255,0.72);
-    font-size: 8pt;
+    font-family: "{FONT_MONO}";
+    font-size: 7.5pt;
     font-weight: 600;
-    letter-spacing: 1px;
+    color: {COLORS['accent']};
 }}
 QLabel#PromoTitle {{
-    color: #FFFFFF;
-    font-size: 14pt;
-    font-weight: 800;
+    font-size: 11.5pt;
+    font-weight: 700;
+    color: {COLORS['text']};
 }}
 QLabel#PromoDesc {{
-    color: rgba(255,255,255,0.88);
-    font-size: 9pt;
-}}
-QLabel#PromoBadge {{
-    color: #E9FFFA;
-    background: rgba(255,255,255,0.16);
-    border: 1px solid rgba(255,255,255,0.30);
-    border-radius: 9px;
-    padding: 2px 8px;
     font-size: 8pt;
+    color: {COLORS['text_sub']};
 }}
 QPushButton#PromoBtn {{
-    background: #FFFFFF;
-    color: #0B4C8A;
-    border: none;
-    border-radius: 8px;
+    background: {COLORS['accent']};
+    color: #0B0E12;
+    border: 1px solid {COLORS['accent']};
     padding: 8px 18px;
     font-weight: 700;
 }}
 QPushButton#PromoBtn:hover {{
-    background: #EAF4FF;
+    background: {COLORS['accent_hover']};
+    border-color: {COLORS['accent_hover']};
 }}
 QPushButton#PromoBtn:pressed {{
-    background: #D6E9FF;
+    background: {COLORS['accent_press']};
+}}
+QPushButton#PromoBtn:disabled {{
+    background: transparent;
+    border-color: #3B3222;
+    color: #7A6437;
 }}
 
-/* 对话框 */
+/* ---------------------------------------------------------------- 底栏 */
+QLabel#FooterText {{
+    font-family: "{FONT_MONO}";
+    font-size: 8pt;
+    color: {COLORS['text_muted']};
+    background: #07090C;
+    border-top: 1px solid {COLORS['border']};
+    padding: 4px 16px;
+}}
+
+/* ---------------------------------------------------------------- 对话框 */
 QDialog#ResidualDialog {{
-    background: {COLORS['surface']};
-    border: 1px solid {COLORS['border']};
+    background: {COLORS['surface_alt']};
 }}
 QLabel#DialogTitle {{
     font-size: 13pt;
@@ -435,48 +489,46 @@ QLabel#DialogSub {{
     color: {COLORS['text_muted']};
 }}
 QListWidget#ResidualList {{
-    background: {COLORS['surface_alt']};
+    background: {COLORS['console_bg']};
     border: 1px solid {COLORS['border']};
-    border-radius: 8px;
-    padding: 4px;
+    padding: 2px;
+    font-family: "{FONT_MONO}";
+    font-size: 8.5pt;
 }}
 QListWidget#ResidualList::item {{
-    border-bottom: 1px solid #EEF2F6;
-    padding: 2px;
+    border-bottom: 1px solid #141B24;
+    padding: 3px;
 }}
 QListWidget#ResidualList::item:selected {{
-    background: {COLORS['accent_soft']};
+    background: #241D10;
     color: {COLORS['text']};
 }}
 QFrame#DialogStat {{
-    background: {COLORS['surface_alt']};
-    border: 1px solid {COLORS['border']};
-    border-radius: 8px;
+    background: transparent;
+    border: none;
+    border-top: 1px solid {COLORS['border']};
 }}
 QDialog#UpdateDialog {{
-    background: {COLORS['surface']};
+    background: {COLORS['surface_alt']};
 }}
 QTextBrowser#UpdateNotes {{
-    background: {COLORS['surface_alt']};
+    background: {COLORS['console_bg']};
     border: 1px solid {COLORS['border']};
-    border-radius: 8px;
     padding: 8px;
     font-size: 9pt;
     color: {COLORS['text_sub']};
 }}
 QMenu#TrayMenu {{
-    background: {COLORS['surface']};
+    background: {COLORS['surface_alt']};
     border: 1px solid {COLORS['border']};
-    border-radius: 8px;
     padding: 4px;
 }}
 QMenu#TrayMenu::item {{
     padding: 7px 18px;
-    border-radius: 6px;
     color: {COLORS['text']};
 }}
 QMenu#TrayMenu::item:selected {{
-    background: {COLORS['accent_soft']};
+    background: #241D10;
     color: {COLORS['accent']};
 }}
 QMenu#TrayMenu::separator {{
