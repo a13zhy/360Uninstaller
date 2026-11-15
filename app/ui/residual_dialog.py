@@ -13,9 +13,9 @@ from . import theme
 
 
 KIND_COLORS = {
-    "process": "#1E63D6", "service": "#0E9384", "dir": "#7C5CFC",
-    "file": "#7C5CFC", "registry": "#E8A33D", "task": "#D4587E",
-    "shortcut": "#5A7D9A",
+    "process": "#A7B6C7", "service": "#4FB3A4", "dir": "#D3AC62",
+    "file": "#93AECB", "registry": "#C99280", "task": "#B58A9A",
+    "shortcut": "#7C8DA0",
 }
 
 
@@ -38,8 +38,8 @@ class ResidualRow(QWidget):
         kind.setFixedWidth(56)
         color = KIND_COLORS.get(item.kind, "#5A7D9A")
         kind.setStyleSheet(
-            f"color:{color}; background:{theme.COLORS['surface']};"
-            f"border:1px solid {color}33; border-radius:8px; font-size:8pt; padding:1px 4px;"
+            f"color:{color}; background:transparent;"
+            f"border:1px solid {color}55; font-size:8pt; padding:1px 4px;"
         )
         lay.addWidget(kind)
 

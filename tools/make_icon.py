@@ -1,4 +1,4 @@
-"""Pillow 生成应用图标：蓝绿渐变圆角方块 + 白色垃圾桶"""
+"""Pillow 生成应用图标：近黑方板 + 琥珀色垃圾桶（与界面同色系）"""
 
 import math
 import os
@@ -22,12 +22,12 @@ def make(size: int = 1024) -> Image.Image:
     S = size * ss
     img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
 
-    # 渐变底
+    # 琥珀色方板（小尺寸下依然醒目）
     grad = Image.new("RGBA", (S, S))
     gd = ImageDraw.Draw(grad)
-    c1 = (49, 196, 141)
-    c2 = (18, 168, 198)
-    c3 = (30, 99, 214)
+    c1 = (245, 192, 113)
+    c2 = (224, 160, 60)
+    c3 = (184, 123, 30)
     for y in range(S):
         for_t = y / (S - 1)
         if for_t < 0.55:
@@ -38,36 +38,31 @@ def make(size: int = 1024) -> Image.Image:
             color = tuple(int(c2[i] + (c3[i] - c2[i]) * t) for i in range(3))
         gd.line([(0, y), (S, y)], fill=color + (255,))
 
-    mask = _round_rect_mask(S, int(S * 0.18))
+    mask = _round_rect_mask(S, int(S * 0.14))
     img.paste(grad, (0, 0), mask)
 
     d = ImageDraw.Draw(img)
-    white = (255, 255, 255, 255)
+    ink = (14, 19, 25, 255)
     cx = S / 2
 
     # 桶盖
-    lid_w = S * 0.38
+    lid_w = S * 0.40
     lid_h = S * 0.058
     d.rounded_rectangle(
-        [cx - lid_w / 2, S * 0.295, cx + lid_w / 2, S * 0.295 + lid_h],
-        radius=int(S * 0.02), fill=white
+        [cx - lid_w / 2, S * 0.285, cx + lid_w / 2, S * 0.285 + lid_h],
+        radius=int(S * 0.016), fill=ink
     )
     # 提手
     d.rounded_rectangle(
-        [cx - S * 0.055, S * 0.252, cx + S * 0.055, S * 0.30],
-        radius=int(S * 0.022), fill=white
+        [cx - S * 0.06, S * 0.235, cx + S * 0.06, S * 0.29],
+        radius=int(S * 0.018), fill=ink
     )
 
     # 桶身
-    top_w = S * 0.32
-    bot_w = S * 0.235
-    top_y = S * 0.385
-    bot_y = S * 0.765
-    body = [
-        (cx - top_w / 2, top_y),
-        (cx + top_w / 2, top_y),
-        (cx + bot_w / 2, bot_y - S * 0.01),
-    ]
+    top_w = S * 0.34
+    bot_w = S * 0.26
+    top_y = S * 0.375
+    bot_y = S * 0.785
     # 用多边形近似 + 底部圆角
     poly = [
         (cx - top_w / 2, top_y),
@@ -77,19 +72,19 @@ def make(size: int = 1024) -> Image.Image:
         (cx - bot_w / 2 + S * 0.02, bot_y - S * 0.012),
         (cx - bot_w / 2, bot_y - S * 0.055),
     ]
-    d.polygon(poly, fill=white)
+    d.polygon(poly, fill=ink)
     d.rounded_rectangle(
         [cx - bot_w / 2, bot_y - S * 0.09, cx + bot_w / 2, bot_y - S * 0.01],
-        radius=int(S * 0.022), fill=white
+        radius=int(S * 0.016), fill=ink
     )
 
-    # 桶身竖纹（半透明蓝）
-    stripe = (18, 120, 175, 120)
+    # 桶身竖纹（琥珀色镂空）
+    stripe = (224, 160, 60, 255)
     for i in (-1, 0, 1):
-        x = cx + i * S * 0.075 - S * 0.008
+        x = cx + i * S * 0.078 - S * 0.009
         d.rounded_rectangle(
-            [x, S * 0.455, x + S * 0.018, S * 0.71],
-            radius=int(S * 0.009), fill=stripe
+            [x, S * 0.46, x + S * 0.018, S * 0.73],
+            radius=int(S * 0.006), fill=stripe
         )
 
     return img.resize((size, size), Image.LANCZOS)
