@@ -1,11 +1,21 @@
-"""界面主题：深色工业风主区 + 同色系终端控制台
+"""界面主题：跟随 Windows 的深/浅色模式与应用强调色
 
-设计取向：方角、细线、低饱和、无卡片阴影；强调色只用琥珀一色，
-危险动作用红描边；数字与日志走等宽字体，避免"AI 模板感"。
+配色不写死：启动时读注册表拿 AppsUseLightTheme 与 ColorizationColor，
+按系统强调色推导 hover/press/soft，浅色模式自动切换文字与底色。
+所有对话框文字都用显式颜色指定，避免落到系统灰。
 """
 
 import os
 import sys
+
+try:
+    import winreg
+except Exception:  # 非 Windows（CI 里的渲染检查）
+    winreg = None
+
+DEFAULT_ACCENT = "#0F6CBD"
+FONT_UI = "Microsoft YaHei UI"
+FONT_MONO = "Cascadia Mono, Consolas, Courier New"
 
 
 def asset_path(name: str) -> str:
@@ -22,390 +32,477 @@ def asset_path(name: str) -> str:
     return ""
 
 
-CHECK_URL = asset_path("check.png")
-CHECK_IMG = f'image: url("{CHECK_URL}");' if CHECK_URL else "image: none;"
+def _rgb(value: str) -> tuple[int, int, int]:
+    value = value.lstrip("#")
+    return int(value[0:2], 16), int(value[2:4], 16), int(value[4:6], 16)
 
-COLORS = {
-    "bg": "#0A0C10",
-    "surface": "#121820",
-    "surface_alt": "#0F141B",
-    "border": "#232C38",
-    "border_strong": "#33404F",
-    "text": "#E9EFF7",
-    "text_sub": "#A7B6C7",
-    "text_muted": "#6B7C90",
-    "accent": "#E0A03C",
-    "accent_hover": "#F2B45A",
-    "accent_press": "#C4861F",
-    "accent_soft": "#2A2114",
-    "teal": "#2E9C8F",
-    "danger": "#E5484D",
-    "danger_hover": "#F26166",
-    "danger_soft": "#2A1416",
-    "success": "#3DCB85",
-    "warn": "#E0A03C",
-    "console_bg": "#06080B",
-    "console_panel": "#090C11",
-    "console_border": "#1B232D",
-    "console_text": "#C4D3E2",
-    "console_dim": "#5E7186",
-}
 
-FONT_UI = "Microsoft YaHei UI"
-FONT_MONO = "Cascadia Mono, Consolas, Courier New"
+def _hex(rgb) -> str:
+    return "#%02X%02X%02X" % tuple(max(0, min(255, int(round(c)))) for c in rgb)
 
-QSS = f"""
+
+def _mix(a: str, b: str, t: float) -> str:
+    ra, rb = _rgb(a), _rgb(b)
+    return _hex(tuple(ra[i] + (rb[i] - ra[i]) * t for i in range(3)))
+
+
+def lighten(color: str, t: float) -> str:
+    return _mix(color, "#FFFFFF", t)
+
+
+def darken(color: str, t: float) -> str:
+    return _mix(color, "#000000", t)
+
+
+def alpha(color: str, a: float) -> str:
+    r, g, b = _rgb(color)
+    return f"rgba({r},{g},{b},{a:.3f})"
+
+
+def _read_reg(path: str, name: str):
+    if winreg is None:
+        return None
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, path) as key:
+            return winreg.QueryValueEx(key, name)[0]
+    except Exception:
+        return None
+
+
+def windows_theme() -> tuple[str, bool]:
+    """返回 (强调色, 是否深色)。读不到就用默认值，绝不抛异常。"""
+    accent = DEFAULT_ACCENT
+    raw = _read_reg(r"Software\Microsoft\Windows\DWM", "ColorizationColor")
+    if isinstance(raw, int):
+        rgb = raw & 0xFFFFFF
+        b, g, r = (rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF
+        if max(r, g, b) > 40:
+            accent = _hex((r, g, b))
+    else:
+        palette = _read_reg(
+            r"Software\Microsoft\Windows\CurrentVersion\Explorer\Accent", "AccentPalette")
+        if isinstance(palette, (bytes, bytearray)) and len(palette) >= 24:
+            r, g, b = palette[16], palette[17], palette[18]
+            if max(r, g, b) > 40:
+                accent = _hex((r, g, b))
+
+    light = _read_reg(
+        r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+        "AppsUseLightTheme")
+    dark = True if light is None else (int(light) == 0)
+    return accent, dark
+
+
+def build(accent: str | None = None, dark: bool | None = None) -> dict:
+    # 允许用环境变量钉住主题（出预览图、录屏时用固定配色）
+    env_accent = os.environ.get("360TOOL_ACCENT", "").strip()
+    env_theme = os.environ.get("360TOOL_THEME", "").strip().lower()
+    if env_accent:
+        accent = env_accent
+    if env_theme in ("light", "dark"):
+        dark = env_theme == "dark"
+    if accent is None or dark is None:
+        sys_accent, sys_dark = windows_theme()
+        accent = accent or sys_accent
+        dark = sys_dark if dark is None else dark
+
+    if dark:
+        base = {
+            "dark": True,
+            "bg": "#0C0F13",
+            "surface": "#12171D",
+            "surface_alt": "#0E1217",
+            "border": "#242B34",
+            "border_strong": "#39434F",
+            "text": "#EDF2F7",
+            "text_sub": "#BCC8D6",
+            "text_muted": "#8B9AAB",
+            "console_bg": "#080A0E",
+            "console_panel": "#0B0F14",
+            "console_border": "#1E262F",
+            "console_text": "#D2DDE9",
+            "console_dim": "#7A8B9E",
+            "danger": "#E5484D",
+            "success": "#3FCB85",
+            "teal": "#2E9C8F",
+            "warn": "#E3A33C",
+        }
+        accent_final = accent
+        if sum(_rgb(accent)) < 180:  # 太暗的强调色在深底上压不住
+            accent_final = lighten(accent, 0.35)
+        title_text = "#F4F8FC"
+    else:
+        base = {
+            "dark": False,
+            "bg": "#F3F5F8",
+            "surface": "#FFFFFF",
+            "surface_alt": "#E9EDF2",
+            "border": "#D3D8E0",
+            "border_strong": "#B4BCC8",
+            "text": "#15191F",
+            "text_sub": "#41505F",
+            "text_muted": "#5E6C7B",
+            "console_bg": "#FFFFFF",
+            "console_panel": "#EDF0F4",
+            "console_border": "#D3D8E0",
+            "console_text": "#1F2933",
+            "console_dim": "#63717F",
+            "danger": "#C32B30",
+            "success": "#1E8E5A",
+            "teal": "#12766C",
+            "warn": "#8A5A00",
+        }
+        accent_final = accent
+        if sum(_rgb(accent)) > 520:  # 太亮的强调色在白底上不压字
+            accent_final = darken(accent, 0.22)
+        title_text = "#0E1217"
+
+    c = dict(base)
+    c.update({
+        "accent": accent_final,
+        "accent_hover": lighten(accent_final, 0.14) if dark else darken(accent_final, 0.08),
+        "accent_press": darken(accent_final, 0.18) if dark else darken(accent_final, 0.20),
+        "accent_soft": _mix(base["surface"], accent_final, 0.16),
+        "accent_line": _mix(base["border"], accent_final, 0.42),
+        "on_accent": "#0B0E12" if sum(_rgb(accent_final)) > 420 else "#FFFFFF",
+        "title": title_text,
+        "hover_bg": _mix(base["bg"], base["text"], 0.05) if dark else _mix(base["bg"], "#000000", 0.04),
+        "danger_hover": lighten(base["danger"], 0.10) if dark else darken(base["danger"], 0.10),
+        "danger_soft": _mix(base["surface"], base["danger"], 0.18),
+        "danger_line": _mix(base["border"], base["danger"], 0.55),
+        "success_soft": _mix(base["surface"], base["success"], 0.16),
+        "row_line": _mix(base["bg"], base["text"], 0.06) if dark else _mix(base["bg"], "#000000", 0.07),
+    })
+    return c
+
+
+COLORS = build()
+CHECK_URL = ""
+CHECK_IMG = "image: none;"
+
+
+def _refresh_assets():
+    global CHECK_URL, CHECK_IMG
+    CHECK_URL = asset_path("check.png")
+    CHECK_IMG = f'image: url("{CHECK_URL}");' if CHECK_URL else "image: none;"
+
+
+_refresh_assets()
+
+
+def qss() -> str:
+    c = COLORS
+    return f"""
 * {{
     font-family: "{FONT_UI}";
-    font-size: 9.5pt;
-    color: {COLORS['text']};
+    font-size: 10pt;
+    color: {c['text']};
+    outline: none;
 }}
-QMainWindow, QWidget#Root {{
-    background: {COLORS['bg']};
+QMainWindow, QWidget#Root, QDialog {{
+    background: {c['bg']};
+}}
+QToolTip {{
+    background: {c['surface']};
+    color: {c['text']};
+    border: 1px solid {c['border_strong']};
+    padding: 5px 8px;
 }}
 
-/* ---------------------------------------------------------------- 顶栏 */
 QWidget#TopBar {{
-    background: {COLORS['surface_alt']};
-    border-bottom: 1px solid {COLORS['border']};
+    background: {c['surface_alt']};
+    border-bottom: 1px solid {c['border']};
 }}
 QLabel#BrandTitle {{
-    font-size: 13.5pt;
+    font-size: 13pt;
     font-weight: 700;
-    color: {COLORS['text']};
+    color: {c['title']};
 }}
 QLabel#BrandSub {{
-    font-size: 8pt;
-    color: {COLORS['text_muted']};
+    font-size: 8.5pt;
+    color: {c['text_muted']};
+}}
+QLabel#VersionBadge, QLabel#AdminBadge {{
+    background: transparent;
+    border: 1px solid {c['border_strong']};
+    padding: 3px 9px;
+    color: {c['text_sub']};
+    font-size: 8.5pt;
 }}
 QLabel#VersionBadge {{
-    background: transparent;
-    border: 1px solid {COLORS['border']};
-    padding: 2px 8px;
-    color: {COLORS['text_sub']};
     font-family: "{FONT_MONO}";
-    font-size: 8pt;
-}}
-QLabel#AdminBadge {{
-    background: transparent;
-    border: 1px solid {COLORS['border_strong']};
-    padding: 2px 8px;
-    color: {COLORS['text_sub']};
-    font-size: 8pt;
 }}
 QLabel#AdminBadge[on="true"] {{
-    border: 1px solid #4A3A1B;
-    color: {COLORS['accent']};
+    border: 1px solid {c['accent_line']};
+    color: {c['accent']};
 }}
 QLabel#AdminBadge[warn="true"] {{
-    border: 1px solid #53312F;
-    color: #F28B8E;
+    border: 1px solid {c['danger_line']};
+    color: {c['danger']};
 }}
 
-/* ---------------------------------------------------------------- 面板 */
 QFrame#LeftPanel {{
-    background: {COLORS['bg']};
+    background: {c['bg']};
     border: none;
-    border-right: 1px solid {COLORS['border']};
+    border-right: 1px solid {c['border']};
 }}
 QFrame#ConsolePanel {{
-    background: {COLORS['console_panel']};
+    background: {c['console_panel']};
     border: none;
-    border-left: 1px solid {COLORS['border']};
+    border-left: 1px solid {c['border']};
 }}
 QLabel#SectionTitle {{
-    font-size: 12pt;
+    font-size: 12.5pt;
     font-weight: 700;
-    color: {COLORS['text']};
+    color: {c['title']};
 }}
 QLabel#SectionHint {{
-    font-size: 8.5pt;
-    color: {COLORS['text_muted']};
-}}
-QLabel#RuleLine {{
-    background: {COLORS['border']};
-    max-height: 1px;
-    min-height: 1px;
-}}
-QWidget#TableHead {{
-    background: transparent;
+    font-size: 9pt;
+    color: {c['text_muted']};
 }}
 QLabel#HeadCell {{
-    font-size: 8pt;
-    color: {COLORS['text_muted']};
+    font-size: 8.5pt;
+    color: {c['text_muted']};
 }}
-QLabel#HeadCellRight {{
-    font-size: 8pt;
-    color: {COLORS['text_muted']};
+QWidget#TableHead {{
+    background: {c['surface_alt']};
+    border-top: 1px solid {c['border']};
+    border-bottom: 1px solid {c['border']};
 }}
 
-/* ---------------------------------------------------------------- 读数 */
 QFrame#StatCard {{
-    background: transparent;
-    border: none;
-    border-left: 1px solid {COLORS['border']};
+    background: {c['surface']};
+    border: 1px solid {c['border']};
+    border-left: 3px solid {c['accent']};
 }}
 QLabel#StatValue {{
     font-family: "{FONT_MONO}";
-    font-size: 17pt;
+    font-size: 18pt;
     font-weight: 700;
-    color: {COLORS['text']};
+    color: {c['title']};
 }}
 QLabel#StatLabel {{
-    font-size: 8pt;
-    color: {COLORS['text_muted']};
+    font-size: 8.5pt;
+    color: {c['text_muted']};
 }}
 
-/* ---------------------------------------------------------------- 应用列表 */
-QScrollArea#AppScroll {{
+QScrollArea#AppScroll, QWidget#AppListHost {{
     background: transparent;
     border: none;
-}}
-QWidget#AppListHost {{
-    background: transparent;
 }}
 QFrame#AppRow {{
     background: transparent;
     border: none;
-    border-bottom: 1px solid #161D26;
+    border-bottom: 1px solid {c['row_line']};
     border-left: 2px solid transparent;
 }}
 QFrame#AppRow:hover {{
-    background: #121A23;
+    background: {c['hover_bg']};
 }}
 QFrame#AppRow[checked="true"] {{
-    background: #151D27;
-    border-left: 2px solid {COLORS['accent']};
-}}
-QFrame#AppRow[dim="true"] {{
-    background: transparent;
+    background: {c['accent_soft']};
+    border-left: 2px solid {c['accent']};
 }}
 QLabel#AppName {{
-    font-size: 9.5pt;
+    font-size: 10pt;
     font-weight: 600;
-    color: {COLORS['text']};
+    color: {c['text']};
 }}
 QLabel#AppDesc {{
-    font-size: 8pt;
-    color: {COLORS['text_muted']};
+    font-size: 8.5pt;
+    color: {c['text_muted']};
 }}
 QLabel#AppState {{
-    font-size: 8pt;
-    color: {COLORS['text_muted']};
+    font-size: 8.5pt;
+    color: {c['text_muted']};
 }}
 QLabel#AppState[state="installed"] {{
-    color: #55D08C;
+    color: {c['success']};
 }}
 QLabel#AppState[state="running"] {{
-    color: {COLORS['accent']};
+    color: {c['accent']};
 }}
-QLabel#AppState[state="clean"] {{
-    color: #53657A;
-}}
-QLabel#AppCount {{
+QLabel#AppCount, QLabel#AppSize {{
     font-family: "{FONT_MONO}";
-    font-size: 8pt;
-    color: {COLORS['text_sub']};
-}}
-QLabel#AppSize {{
-    font-family: "{FONT_MONO}";
-    font-size: 8pt;
-    color: {COLORS['text_muted']};
+    font-size: 8.5pt;
+    color: {c['text_sub']};
 }}
 
-/* ---------------------------------------------------------------- 勾选框 */
 QCheckBox {{
     spacing: 8px;
+    color: {c['text']};
 }}
 QCheckBox::indicator {{
     width: 15px;
     height: 15px;
-    border: 1px solid #44546A;
-    background: #0D1218;
+    border: 1px solid {c['border_strong']};
+    background: {c['surface']};
 }}
 QCheckBox::indicator:hover {{
-    border-color: {COLORS['accent']};
+    border-color: {c['accent']};
 }}
 QCheckBox::indicator:checked {{
-    background: {COLORS['accent']};
-    border-color: {COLORS['accent']};
+    background: {c['accent']};
+    border-color: {c['accent']};
     {CHECK_IMG}
 }}
 QCheckBox::indicator:checked:disabled {{
-    background: #4A3A1B;
-    border-color: #4A3A1B;
+    background: {c['border']};
+    border-color: {c['border']};
     {CHECK_IMG}
 }}
 
-/* ---------------------------------------------------------------- 按钮 */
 QPushButton {{
-    background: #131A23;
-    border: 1px solid {COLORS['border_strong']};
-    padding: 7px 16px;
-    color: {COLORS['text']};
+    background: {c['surface']};
+    border: 1px solid {c['border_strong']};
+    padding: 8px 16px;
+    color: {c['text']};
 }}
 QPushButton:hover {{
-    background: #1A232E;
-    border-color: #46586C;
+    background: {c['hover_bg']};
+    border-color: {c['accent_line']};
 }}
 QPushButton:pressed {{
-    background: #0D131A;
+    background: {c['surface_alt']};
 }}
 QPushButton:disabled {{
-    color: #566577;
-    border-color: #232C38;
-    background: #0E131A;
+    color: {c['text_muted']};
+    border-color: {c['border']};
+    background: transparent;
 }}
 QPushButton#Primary {{
-    background: {COLORS['accent']};
-    border: 1px solid {COLORS['accent']};
-    color: #0B0E12;
+    background: {c['accent']};
+    border: 1px solid {c['accent']};
+    color: {c['on_accent']};
     font-weight: 700;
 }}
 QPushButton#Primary:hover {{
-    background: {COLORS['accent_hover']};
-    border-color: {COLORS['accent_hover']};
+    background: {c['accent_hover']};
+    border-color: {c['accent_hover']};
 }}
 QPushButton#Primary:pressed {{
-    background: {COLORS['accent_press']};
-    border-color: {COLORS['accent_press']};
+    background: {c['accent_press']};
+    border-color: {c['accent_press']};
 }}
 QPushButton#Primary:disabled {{
     background: transparent;
-    border: 1px solid #3B3222;
-    color: #7A6437;
+    border: 1px solid {c['border_strong']};
+    color: {c['text_muted']};
 }}
 QPushButton#Danger {{
     background: transparent;
-    border: 1px solid #6B3033;
-    color: #F27378;
+    border: 1px solid {c['danger_line']};
+    color: {c['danger']};
     font-weight: 600;
 }}
 QPushButton#Danger:hover {{
-    background: {COLORS['danger']};
-    border-color: {COLORS['danger']};
-    color: #0B0E12;
+    background: {c['danger']};
+    border-color: {c['danger']};
+    color: {c['on_accent']};
 }}
 QPushButton#Danger:pressed {{
-    background: #C23B40;
-    border-color: #C23B40;
-    color: #0B0E12;
+    background: {c['danger_hover']};
 }}
 QPushButton#Danger:disabled {{
     background: transparent;
-    border-color: #3A2224;
-    color: #7A4C4F;
+    border-color: {c['border']};
+    color: {c['text_muted']};
 }}
 QPushButton#Ghost {{
     background: transparent;
     border: 1px solid transparent;
-    color: {COLORS['text_sub']};
+    color: {c['text_sub']};
 }}
 QPushButton#Ghost:hover {{
     background: transparent;
-    border: 1px solid {COLORS['border']};
-    color: {COLORS['text']};
+    border: 1px solid {c['border_strong']};
+    color: {c['text']};
 }}
 QPushButton#ConsoleGhost {{
     background: transparent;
-    border: 1px solid {COLORS['console_border']};
-    color: #8FA3B8;
-    padding: 3px 10px;
-    font-size: 8pt;
+    border: 1px solid {c['border']};
+    color: {c['text_sub']};
+    padding: 4px 10px;
+    font-size: 8.5pt;
 }}
 QPushButton#ConsoleGhost:hover {{
-    border-color: #33455A;
-    color: #D8E4F0;
+    border-color: {c['accent_line']};
+    color: {c['text']};
 }}
 QPushButton#UpdateHot {{
-    background: {COLORS['accent_soft']};
-    border: 1px solid #4A3A1B;
-    color: {COLORS['accent']};
+    background: {c['accent_soft']};
+    border: 1px solid {c['accent_line']};
+    color: {c['accent']};
     font-weight: 600;
 }}
 QPushButton#UpdateHot:hover {{
-    background: {COLORS['accent']};
-    border-color: {COLORS['accent']};
-    color: #0B0E12;
+    background: {c['accent']};
+    color: {c['on_accent']};
 }}
 
-/* ---------------------------------------------------------------- 进度条 */
 QProgressBar {{
-    background: #151C25;
+    background: {c['border']};
     border: none;
-    text-align: center;
 }}
 QProgressBar::chunk {{
-    background: {COLORS['accent']};
+    background: {c['accent']};
 }}
 QProgressBar#ConsoleBar {{
-    background: #141B24;
-    border: none;
+    background: {c['border']};
 }}
 QProgressBar#ConsoleBar::chunk {{
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-        stop:0 #B87B1E, stop:0.6 #E0A03C, stop:1 #F2B45A);
+        stop:0 {c['accent_press']}, stop:1 {c['accent_hover']});
 }}
 
-/* ---------------------------------------------------------------- 控制台 */
 QLabel#ConsoleTitle {{
     font-family: "{FONT_MONO}";
-    font-size: 9pt;
+    font-size: 9.5pt;
     font-weight: 700;
-    color: #D6E3F0;
+    color: {c['text']};
 }}
 QLabel#ConsoleHint {{
     font-family: "{FONT_MONO}";
-    font-size: 7.5pt;
-    color: {COLORS['console_dim']};
+    font-size: 8pt;
+    color: {c['console_dim']};
 }}
 QLabel#ConsoleStatValue {{
     font-family: "{FONT_MONO}";
-    font-size: 12pt;
+    font-size: 13pt;
     font-weight: 700;
-    color: #E9EFF7;
+    color: {c['text']};
 }}
 QLabel#ConsoleStatLabel {{
-    font-size: 7.5pt;
-    color: {COLORS['console_dim']};
+    font-size: 8pt;
+    color: {c['console_dim']};
 }}
 QFrame#ConsoleStatCard {{
     background: transparent;
     border: none;
-    border-top: 1px solid {COLORS['console_border']};
+    border-top: 1px solid {c['console_border']};
 }}
 QPlainTextEdit#Console {{
-    background: {COLORS['console_bg']};
-    border: 1px solid {COLORS['console_border']};
-    color: {COLORS['console_text']};
+    background: {c['console_bg']};
+    border: 1px solid {c['console_border']};
+    color: {c['console_text']};
     font-family: "{FONT_MONO}";
-    font-size: 8.5pt;
+    font-size: 9pt;
     padding: 8px;
-    selection-background-color: #3A2E18;
-    selection-color: #F7EBD8;
+    selection-background-color: {c['accent_soft']};
+    selection-color: {c['text']};
 }}
+
 QScrollBar:vertical {{
     background: transparent;
-    width: 10px;
+    width: 11px;
     margin: 0px;
 }}
 QScrollBar::handle:vertical {{
-    background: #2B3644;
-    min-height: 30px;
+    background: {c['border_strong']};
+    min-height: 28px;
 }}
 QScrollBar::handle:vertical:hover {{
-    background: #3C4C5E;
-}}
-QScrollBar#ConsoleScroll:vertical {{
-    background: transparent;
-    width: 10px;
-}}
-QScrollBar#ConsoleScroll::handle:vertical {{
-    background: #26313D;
-    min-height: 30px;
-}}
-QScrollBar#ConsoleScroll::handle:vertical:hover {{
-    background: #3A4C60;
+    background: {c['accent']};
 }}
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
     height: 0px;
@@ -415,135 +512,194 @@ QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
 }}
 QScrollBar:horizontal {{
     background: transparent;
-    height: 8px;
+    height: 10px;
 }}
 QScrollBar::handle:horizontal {{
-    background: #2B3644;
+    background: {c['border_strong']};
 }}
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
     width: 0px;
 }}
 
-/* ---------------------------------------------------------------- 宣传条 */
 QFrame#PromoCard {{
-    background: #101720;
+    background: {c['surface']};
     border: none;
-    border-top: 1px solid {COLORS['border']};
-    border-left: 3px solid {COLORS['accent']};
+    border-top: 1px solid {c['border']};
+    border-left: 3px solid {c['accent']};
 }}
 QLabel#PromoKicker {{
     font-family: "{FONT_MONO}";
-    font-size: 7.5pt;
+    font-size: 8pt;
     font-weight: 600;
-    color: {COLORS['accent']};
+    color: {c['accent']};
 }}
 QLabel#PromoTitle {{
-    font-size: 11.5pt;
+    font-size: 12pt;
     font-weight: 700;
-    color: {COLORS['text']};
+    color: {c['title']};
 }}
 QLabel#PromoDesc {{
-    font-size: 8pt;
-    color: {COLORS['text_sub']};
+    font-size: 8.5pt;
+    color: {c['text_sub']};
 }}
 QPushButton#PromoBtn {{
-    background: {COLORS['accent']};
-    color: #0B0E12;
-    border: 1px solid {COLORS['accent']};
-    padding: 8px 18px;
+    background: {c['accent']};
+    color: {c['on_accent']};
+    border: 1px solid {c['accent']};
+    padding: 9px 20px;
     font-weight: 700;
 }}
 QPushButton#PromoBtn:hover {{
-    background: {COLORS['accent_hover']};
-    border-color: {COLORS['accent_hover']};
+    background: {c['accent_hover']};
+    border-color: {c['accent_hover']};
 }}
 QPushButton#PromoBtn:pressed {{
-    background: {COLORS['accent_press']};
+    background: {c['accent_press']};
 }}
 QPushButton#PromoBtn:disabled {{
     background: transparent;
-    border-color: #3B3222;
-    color: #7A6437;
+    border-color: {c['border_strong']};
+    color: {c['text_muted']};
 }}
 
-/* ---------------------------------------------------------------- 底栏 */
 QLabel#FooterText {{
     font-family: "{FONT_MONO}";
-    font-size: 8pt;
-    color: {COLORS['text_muted']};
-    background: #07090C;
-    border-top: 1px solid {COLORS['border']};
-    padding: 4px 16px;
+    font-size: 8.5pt;
+    color: {c['text_sub']};
+    background: {c['surface_alt']};
+    border-top: 1px solid {c['border']};
+    padding: 5px 16px;
 }}
 
-/* ---------------------------------------------------------------- 对话框 */
-QDialog#ResidualDialog {{
-    background: {COLORS['surface_alt']};
+QDialog QLabel {{
+    color: {c['text']};
 }}
 QLabel#DialogTitle {{
-    font-size: 13pt;
+    font-size: 13.5pt;
     font-weight: 700;
+    color: {c['title']};
 }}
 QLabel#DialogSub {{
-    font-size: 9pt;
-    color: {COLORS['text_muted']};
+    font-size: 9.5pt;
+    color: {c['text_sub']};
 }}
 QListWidget#ResidualList {{
-    background: {COLORS['console_bg']};
-    border: 1px solid {COLORS['border']};
+    background: {c['surface']};
+    border: 1px solid {c['border_strong']};
     padding: 2px;
+    color: {c['text']};
     font-family: "{FONT_MONO}";
-    font-size: 8.5pt;
+    font-size: 9pt;
 }}
 QListWidget#ResidualList::item {{
-    border-bottom: 1px solid #141B24;
-    padding: 3px;
+    border-bottom: 1px solid {c['row_line']};
+    padding: 2px;
 }}
 QListWidget#ResidualList::item:selected {{
-    background: #241D10;
-    color: {COLORS['text']};
+    background: {c['accent_soft']};
+    color: {c['text']};
 }}
 QFrame#DialogStat {{
-    background: transparent;
-    border: none;
-    border-top: 1px solid {COLORS['border']};
-}}
-QDialog#UpdateDialog {{
-    background: {COLORS['surface_alt']};
+    background: {c['surface']};
+    border: 1px solid {c['border']};
 }}
 QTextBrowser#UpdateNotes {{
-    background: {COLORS['console_bg']};
-    border: 1px solid {COLORS['border']};
-    padding: 8px;
-    font-size: 9pt;
-    color: {COLORS['text_sub']};
+    background: {c['surface']};
+    border: 1px solid {c['border_strong']};
+    padding: 10px;
+    font-size: 10pt;
+    color: {c['text']};
+}}
+QMessageBox {{
+    background: {c['surface_alt']};
+}}
+QMessageBox QLabel {{
+    color: {c['text']};
+    font-size: 10pt;
+    min-width: 320px;
+}}
+QMessageBox QPushButton {{
+    min-width: 84px;
+    min-height: 30px;
 }}
 QMenu#TrayMenu {{
-    background: {COLORS['surface_alt']};
-    border: 1px solid {COLORS['border']};
+    background: {c['surface']};
+    border: 1px solid {c['border_strong']};
     padding: 4px;
 }}
 QMenu#TrayMenu::item {{
-    padding: 7px 18px;
-    color: {COLORS['text']};
+    padding: 8px 18px;
+    color: {c['text']};
 }}
 QMenu#TrayMenu::item:selected {{
-    background: #241D10;
-    color: {COLORS['accent']};
+    background: {c['accent_soft']};
+    color: {c['accent']};
 }}
 QMenu#TrayMenu::separator {{
     height: 1px;
-    background: {COLORS['border']};
+    background: {c['border']};
     margin: 4px 8px;
 }}
-QToolTip {{
-    background: {COLORS['console_panel']};
-    color: {COLORS['console_text']};
-    border: 1px solid {COLORS['console_border']};
-    padding: 4px 8px;
+
+QFrame#ScanHud {{
+    background: {c['surface']};
+    border: 1px solid {c['accent_line']};
+    border-left: 3px solid {c['accent']};
+}}
+QLabel#HudTitle {{
+    font-size: 9.5pt;
+    font-weight: 700;
+    color: {c['title']};
+}}
+QLabel#HudText {{
+    font-size: 8.5pt;
+    color: {c['text_sub']};
+}}
+QLabel#HudPct {{
+    font-family: "{FONT_MONO}";
+    font-size: 9pt;
+    color: {c['accent']};
+}}
+QPushButton#HudClose {{
+    background: transparent;
+    border: none;
+    color: {c['text_muted']};
+    padding: 0px 4px;
+    font-size: 11pt;
+}}
+QPushButton#HudClose:hover {{
+    color: {c['danger']};
 }}
 """
 
 
 def apply(app):
-    app.setStyleSheet(QSS)
+    global COLORS
+    COLORS = build()
+    _refresh_assets()
+    try:
+        from PySide6.QtGui import QColor, QPalette
+
+        pal = app.palette()
+        c = COLORS
+        for role, color in (
+            (QPalette.WindowText, c["text"]),
+            (QPalette.Text, c["text"]),
+            (QPalette.ButtonText, c["text"]),
+            (QPalette.ToolTipText, c["text"]),
+            (QPalette.Window, c["bg"]),
+            (QPalette.Base, c["surface"]),
+            (QPalette.AlternateBase, c["surface_alt"]),
+            (QPalette.Button, c["surface"]),
+            (QPalette.Highlight, c["accent"]),
+            (QPalette.HighlightedText, c["on_accent"]),
+        ):
+            pal.setColor(role, QColor(color))
+        app.setPalette(pal)
+    except Exception:
+        pass
+    app.setStyleSheet(qss())
+
+
+def color(key: str, default: str = "#EDF2F7") -> str:
+    return COLORS.get(key, default)
