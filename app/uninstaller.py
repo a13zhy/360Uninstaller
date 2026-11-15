@@ -57,7 +57,7 @@ def remove_one(item, logger=None) -> tuple[bool, str, int]:
         ok1, d1 = process_utils.stop_service(target)
         ok2, d2 = process_utils.delete_service(target)
         ok, detail = (ok1 and ok2), f"{d1}；{d2}"
-    elif kind in ("dir", "file"):
+    elif kind in ("dir", "file", "dll"):
         ok, detail, _freed, pending = cleanup.remove_path(
             target, force=True,
             log=(lambda m: logger(m)) if logger else None)
@@ -70,7 +70,7 @@ def remove_one(item, logger=None) -> tuple[bool, str, int]:
             ok, detail = registry_utils.delete_key(target)
     elif kind == "task":
         ok, detail = process_utils.delete_task(target)
-    elif kind == "shortcut":
+    elif kind in ("shortcut", "startup"):
         ok, detail, _ = cleanup.remove_shortcut(target)
     else:
         ok, detail = False, f"未知类型：{kind}"
@@ -100,7 +100,7 @@ class UninstallEngine:
             self.progress(f"{stage_prefix}正在处理 {idx}/{total}：{item.label}", pct)
             ok, detail, pending = remove_one(item, self.logger)
             result.add(item, ok, detail, pending)
-            if item.kind in ("dir", "file") and ok and not pending:
+            if item.kind in ("dir", "file", "dll") and ok and not pending:
                 self.logger(f"  释放空间 {cleanup.human_size(item.size)}")
             time.sleep(0.05)
         return result
@@ -125,12 +125,13 @@ class UninstallEngine:
             unique.append(it)
         all_items = unique
 
-        order = {"process": 0, "service": 1, "task": 2, "dir": 3,
-                 "file": 4, "registry": 5, "shortcut": 6}
+        order = {"process": 0, "service": 1, "task": 2, "startup": 3, "dir": 4,
+                 "file": 5, "dll": 6, "registry": 7, "shortcut": 8}
         all_items.sort(key=lambda i: order.get(i.kind, 9))
 
         labels = {0: "结束进程", 1: "停止并删除服务", 2: "清理计划任务",
-                  3: "删除安装目录", 4: "删除残留文件", 5: "清理注册表", 6: "清理快捷方式"}
+                  3: "清理开机启动项", 4: "删除安装目录", 5: "删除残留文件",
+                  6: "删除 360 模块与驱动", 7: "清理注册表", 8: "清理快捷方式"}
         result = EngineResult()
         total = max(1, len(all_items))
         for idx, item in enumerate(all_items, start=1):

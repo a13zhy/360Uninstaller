@@ -144,3 +144,83 @@ def file_icon(path: str, size: QSize = QSize(24, 24)) -> QIcon:
         return icon if not icon.isNull() else QIcon()
     except Exception:
         return QIcon()
+
+
+_ICON_CACHE: dict[str, str] = {}
+
+
+def _pick_from_dir(folder: str, exe_names: list[str]) -> str:
+    """在安装目录里优先找主程序 exe，其次找 .ico，最后找自带图片。"""
+    if not folder or not os.path.isdir(folder):
+        return ""
+    for exe in exe_names:
+        for candidate in (exe, exe[0].upper() + exe[1:] if exe else ""):
+            path = os.path.join(folder, candidate)
+            if os.path.isfile(path):
+                return path
+    try:
+        entries = sorted(os.listdir(folder))
+    except OSError:
+        return ""
+    for name in entries:
+        if name.lower().endswith(".ico"):
+            return os.path.join(folder, name)
+    for name in entries:
+        low = name.lower()
+        if low.endswith((".exe", ".png")) and any(k in low for k in ("360", "main", "safe")):
+            return os.path.join(folder, name)
+    for sub in entries[:40]:
+        full = os.path.join(folder, sub)
+        if os.path.isdir(full):
+            for name in ("*.ico",):
+                try:
+                    for f in os.listdir(full):
+                        if f.lower().endswith(".ico"):
+                            return os.path.join(full, f)
+                except OSError:
+                    pass
+    return ""
+
+
+def installed_icon(app: dict) -> QIcon:
+    """尽量拿应用安装根目录里的真实图标，拿不到再退回自绘徽章。"""
+    key = app.get("key", "")
+    if key in _ICON_CACHE:
+        icon = QIcon(_ICON_CACHE[key])
+        if not icon.isNull():
+            return icon
+
+    path = ""
+    exe_names = [p for p in app.get("processes", []) if p.lower().endswith(".exe")]
+    for folder in app.get("dirs", []):
+        path = _pick_from_dir(folder, exe_names)
+        if path:
+            break
+    for hint in app.get("icon_paths", []):
+        if hint and os.path.isfile(hint):
+            path = hint
+            break
+
+    if path:
+        icon = QIcon(path)
+        if not icon.isNull():
+            _ICON_CACHE[key] = path
+            return icon
+    # 没找到不写缓存：下次扫描到安装目录还能再试一次
+    return QIcon()
+
+
+def exe_icon_for(app: dict) -> str:
+    return _ICON_CACHE.get(app.get("key", ""), "")
+
+
+def set_real_icon(label, app: dict, index: int, size: int = 30) -> bool:
+    """给 QLabel 换上真实程序图标；失败时保持原徽章不动。"""
+    icon = installed_icon(app)
+    if icon.isNull():
+        return False
+    pm = icon.pixmap(size, size)
+    if pm.isNull():
+        return False
+    label.setPixmap(pm)
+    return True
