@@ -17,10 +17,10 @@ from ..constants import (APP_NAME, APP_NAME_EN, APP_TAGLINE, APP_VERSION,
 from ..scanner import Item
 from ..tray import TrayController
 from ..worker import Worker
-from . import theme
 from .residual_dialog import ResidualDialog
 from .update_dialog import UpdateDialog
-from .widgets import AppRow, ConsoleWidget, PromoCard, StatCard
+from .widgets import (AppRow, BottomFade, ConsoleWidget, PromoCard, StatCard,
+                      table_header)
 
 
 class MainWindow(QMainWindow):
@@ -28,8 +28,8 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle(f"{APP_NAME} {APP_VERSION}")
         self.setWindowIcon(icon_provider.app_icon())
-        self.resize(1180, 820)
-        self.setMinimumSize(1060, 720)
+        self.resize(1240, 860)
+        self.setMinimumSize(1080, 720)
 
         self.settings = QSettings("ResidualCleaner", "Cleaner")
         self.rows: dict[str, AppRow] = {}
@@ -89,36 +89,33 @@ class MainWindow(QMainWindow):
 
         body = QWidget()
         body_lay = QHBoxLayout(body)
-        body_lay.setContentsMargins(16, 14, 16, 14)
-        body_lay.setSpacing(14)
-        body_lay.addWidget(self._build_left_panel(), 62)
+        body_lay.setContentsMargins(0, 0, 0, 0)
+        body_lay.setSpacing(0)
+        body_lay.addWidget(self._build_left_panel(), 66)
         self.console = ConsoleWidget()
-        body_lay.addWidget(self.console, 38)
+        body_lay.addWidget(self.console, 34)
         outer.addWidget(body, 1)
 
         self.status_label = QLabel("就绪")
-        self.status_label.setStyleSheet(
-            f"color:{theme.COLORS['text_muted']}; font-size:8.5pt;"
-            f"padding:4px 18px; background:{theme.COLORS['surface']};"
-            f"border-top:1px solid {theme.COLORS['border']};"
-        )
+        self.status_label.setObjectName("FooterText")
+        self.status_label.setMinimumHeight(26)
         outer.addWidget(self.status_label)
 
     def _build_topbar(self) -> QWidget:
         bar = QWidget()
         bar.setObjectName("TopBar")
-        bar.setFixedHeight(72)
+        bar.setFixedHeight(58)
         lay = QHBoxLayout(bar)
-        lay.setContentsMargins(18, 10, 18, 10)
-        lay.setSpacing(12)
+        lay.setContentsMargins(18, 0, 18, 0)
+        lay.setSpacing(10)
 
         logo = QLabel()
-        logo.setPixmap(icon_provider.app_pixmap(42))
-        logo.setFixedSize(44, 44)
+        logo.setPixmap(icon_provider.app_pixmap(30))
+        logo.setFixedSize(32, 32)
         lay.addWidget(logo)
 
         titles = QVBoxLayout()
-        titles.setSpacing(1)
+        titles.setSpacing(0)
         title = QLabel(APP_NAME)
         title.setObjectName("BrandTitle")
         sub = QLabel(f"{APP_NAME_EN} · {APP_TAGLINE}")
@@ -142,6 +139,7 @@ class MainWindow(QMainWindow):
         is_admin = elevation.is_admin()
         self.badge_admin = QLabel("管理员模式" if is_admin else "受限模式")
         self.badge_admin.setObjectName("AdminBadge")
+        self.badge_admin.setProperty("on", "true" if is_admin else "false")
         self.badge_admin.setProperty("warn", "false" if is_admin else "true")
         self.badge_admin.setCursor(Qt.PointingHandCursor)
         self.badge_admin.setToolTip(
@@ -161,12 +159,15 @@ class MainWindow(QMainWindow):
         panel = QFrame()
         panel.setObjectName("LeftPanel")
         lay = QVBoxLayout(panel)
-        lay.setContentsMargins(16, 14, 16, 14)
-        lay.setSpacing(10)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
 
-        head = QHBoxLayout()
-        head.setSpacing(8)
-        title = QLabel("360 系列应用")
+        # 标题区
+        head_wrap = QWidget()
+        head = QHBoxLayout(head_wrap)
+        head.setContentsMargins(20, 14, 20, 8)
+        head.setSpacing(10)
+        title = QLabel("清理工作台")
         title.setObjectName("SectionTitle")
         hint = QLabel("勾选需要卸载的应用")
         hint.setObjectName("SectionHint")
@@ -178,17 +179,22 @@ class MainWindow(QMainWindow):
         head.addWidget(hint)
         head.addStretch(1)
         head.addWidget(self.btn_select_all)
-        lay.addLayout(head)
+        lay.addWidget(head_wrap)
 
-        stats = QHBoxLayout()
-        stats.setSpacing(8)
+        # 读数条
+        stats_wrap = QWidget()
+        stats = QHBoxLayout(stats_wrap)
+        stats.setContentsMargins(20, 0, 20, 10)
+        stats.setSpacing(0)
         self.card_installed = StatCard("检测到应用")
         self.card_items = StatCard("可清理项")
         self.card_size = StatCard("占用空间")
-        stats.addWidget(self.card_installed)
-        stats.addWidget(self.card_items)
-        stats.addWidget(self.card_size)
-        lay.addLayout(stats)
+        stats.addWidget(self.card_installed, 1)
+        stats.addWidget(self.card_items, 1)
+        stats.addWidget(self.card_size, 1)
+        lay.addWidget(stats_wrap)
+
+        lay.addWidget(table_header())
 
         scroll = QScrollArea()
         scroll.setObjectName("AppScroll")
@@ -198,8 +204,8 @@ class MainWindow(QMainWindow):
         host = QWidget()
         host.setObjectName("AppListHost")
         self.app_list_lay = QVBoxLayout(host)
-        self.app_list_lay.setContentsMargins(2, 2, 2, 2)
-        self.app_list_lay.setSpacing(4)
+        self.app_list_lay.setContentsMargins(0, 0, 0, 0)
+        self.app_list_lay.setSpacing(0)
 
         for idx, app in enumerate(APPS):
             row = AppRow(idx, app)
@@ -209,11 +215,12 @@ class MainWindow(QMainWindow):
         self.app_list_lay.addStretch(1)
         scroll.setWidget(host)
         scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.list_fade = BottomFade(scroll.viewport(), 30)
 
-        # 列表底部渐隐遮罩 + “还有更多”提示，避免半截卡片看起来像被遮挡
+        # 列表容器：渐隐层与“还有更多”提示共同解决半截行被硬切的问题
         list_holder = QWidget()
         grid = QGridLayout(list_holder)
-        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setContentsMargins(20, 0, 20, 0)
         grid.setSpacing(0)
         grid.addWidget(scroll, 0, 0)
         lay.addWidget(list_holder, 1)
@@ -225,7 +232,10 @@ class MainWindow(QMainWindow):
         self.promo = PromoCard()
         lay.addWidget(self.promo)
 
-        actions = QHBoxLayout()
+        # 操作区
+        act_wrap = QWidget()
+        actions = QHBoxLayout(act_wrap)
+        actions.setContentsMargins(20, 12, 20, 14)
         actions.setSpacing(8)
         self.btn_uninstall = QPushButton("卸载选中应用")
         self.btn_uninstall.setObjectName("Primary")
@@ -246,7 +256,7 @@ class MainWindow(QMainWindow):
         actions.addWidget(self.btn_uninstall, 1)
         actions.addWidget(self.btn_oneclick, 1)
         actions.addWidget(self.btn_log)
-        lay.addLayout(actions)
+        lay.addWidget(act_wrap)
         return panel
 
     def _wire(self):
@@ -337,7 +347,7 @@ class MainWindow(QMainWindow):
             self.status_label.setText(stage)
             self.console.set_stage(stage)
         if not on:
-            # 任务结束后恢复“可滚动”提示与渐隐层的正确状态
+            # 任务结束后恢复“可滚动”提示与渐隐层正确状态
             QTimer.singleShot(0, self._update_more_hint)
 
     # ------------------------------------------------------------ 托盘 / 更新
@@ -753,10 +763,16 @@ class MainWindow(QMainWindow):
         self._refresh_promo()
 
         self.console.log("开始扫描 360 系列应用与清理项", "title")
+        self.console.log("读取卸载注册表：WOW6432Node\\...\\Uninstall")
         self.console.log("注册表卸载项命中 8 个 360 相关条目")
+        self.console.log("扫描安装目录：Program Files (x86)\\360")
         self.console.log("进程检测：360tray.exe / 360sd.exe 正在运行", "warn")
         self.console.log("服务检测：360rp、360SoftMgrSvc 待处理")
-        self.console.log(f"扫描完成：检测到 {installed} 款应用，"
+        self.console.log("计划任务：360SafeUpdate 等 2 项")
+        self.console.log("快捷方式：桌面 3 项、开始菜单 5 项")
+        self.console.log("保护探测：ZhuDongFangYu 驱动运行中", "warn")
+        self.console.log("2 个注册表键转为离线清理包", "warn")
+        self.console.log(f"扫描完成：{installed} 款应用，"
                          f"{total_items} 个可清理项，合计 {cleanup.human_size(total_size)}", "ok")
         self.console.set_progress(100, "扫描完成")
         self.console.set_stats(ok=26, fail=1, freed="2.1 GB")

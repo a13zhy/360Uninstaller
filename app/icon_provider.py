@@ -11,18 +11,18 @@ from PySide6.QtWidgets import QFileIconProvider
 from .constants import APP_NAME
 
 PALETTE = [
-    ("#0EA5C6", "#0B7C93"),
-    ("#2E7CF6", "#1B4FA8"),
-    ("#7C5CFC", "#4B32A8"),
-    ("#F25F5C", "#B43330"),
-    ("#25B09B", "#12806F"),
-    ("#E8A33D", "#A66E14"),
-    ("#4FA8D8", "#2B6F96"),
-    ("#9B6BD6", "#67409B"),
-    ("#46A758", "#2A6E38"),
-    ("#D4587E", "#94324F"),
-    ("#5A7D9A", "#365068"),
-    ("#B07A45", "#78502A"),
+    "#9FB4C9",
+    "#D3AC62",
+    "#8FBFA6",
+    "#C99280",
+    "#93AECB",
+    "#B79E76",
+    "#A6A2C8",
+    "#B58A9A",
+    "#8EBB8F",
+    "#C0A0A0",
+    "#9BA9B8",
+    "#BFA07C",
 ]
 
 
@@ -33,7 +33,7 @@ def _base_dir() -> str:
 
 
 def _draw_trash(size: int = 256) -> QPixmap:
-    """程序图标：蓝绿渐变圆角方块 + 白色垃圾桶。"""
+    """程序图标：琥珀方板 + 深色垃圾桶，小尺寸下也能看清轮廓。"""
     pm = QPixmap(size, size)
     pm.fill(Qt.transparent)
     p = QPainter(pm)
@@ -42,42 +42,42 @@ def _draw_trash(size: int = 256) -> QPixmap:
 
     rect = QRectF(6, 6, size - 12, size - 12)
     path = QPainterPath()
-    path.addRoundedRect(rect, size * 0.18, size * 0.18)
-    grad = QLinearGradient(rect.topLeft(), rect.bottomRight())
-    grad.setColorAt(0.0, QColor("#31C48D"))
-    grad.setColorAt(0.55, QColor("#12A8C6"))
-    grad.setColorAt(1.0, QColor("#1E63D6"))
-    p.fillPath(path, QBrush(grad))
-    p.setPen(QPen(QColor(255, 255, 255, 40), 2))
+    path.addRoundedRect(rect, size * 0.14, size * 0.14)
+    plate = QLinearGradient(rect.topLeft(), rect.bottomRight())
+    plate.setColorAt(0.0, QColor("#F5C071"))
+    plate.setColorAt(0.55, QColor("#E0A03C"))
+    plate.setColorAt(1.0, QColor("#B87B1E"))
+    p.fillPath(path, QBrush(plate))
+    p.setPen(QPen(QColor("#F7CF92"), max(2, int(size * 0.014)))
     p.drawPath(path)
 
-    white = QColor("#FFFFFF")
-    p.setBrush(QBrush(white))
+    ink = QColor("#0E1319")
+    p.setBrush(QBrush(ink))
     p.setPen(Qt.NoPen)
     cx = size / 2
 
     # 桶盖
-    lid = QRectF(cx - size * 0.19, size * 0.30, size * 0.38, size * 0.055)
-    p.drawRoundedRect(lid, 6, 6)
-    handle = QRectF(cx - size * 0.055, size * 0.255, size * 0.11, size * 0.06)
-    p.drawRoundedRect(handle, 5, 5)
+    lid = QRectF(cx - size * 0.20, size * 0.28, size * 0.40, size * 0.058)
+    p.drawRoundedRect(lid, 4, 4)
+    handle = QRectF(cx - size * 0.06, size * 0.228, size * 0.12, size * 0.062)
+    p.drawRoundedRect(handle, 3, 3)
 
     # 桶身（梯形）
     body = QPainterPath()
-    body.moveTo(cx - size * 0.16, size * 0.38)
-    body.lineTo(cx + size * 0.16, size * 0.38)
-    body.lineTo(cx + size * 0.12, size * 0.73)
-    body.quadTo(cx + size * 0.11, size * 0.775, cx + size * 0.06, size * 0.775)
-    body.lineTo(cx - size * 0.06, size * 0.775)
-    body.quadTo(cx - size * 0.11, size * 0.775, cx - size * 0.12, size * 0.73)
+    body.moveTo(cx - size * 0.17, size * 0.37)
+    body.lineTo(cx + size * 0.17, size * 0.37)
+    body.lineTo(cx + size * 0.13, size * 0.755)
+    body.quadTo(cx + size * 0.12, size * 0.80, cx + size * 0.065, size * 0.80)
+    body.lineTo(cx - size * 0.065, size * 0.80)
+    body.quadTo(cx - size * 0.12, size * 0.80, cx - size * 0.13, size * 0.755)
     body.closeSubpath()
-    p.fillPath(body, QBrush(white))
+    p.fillPath(body, QBrush(ink))
 
-    # 桶身竖纹
-    p.setBrush(QBrush(QColor(18, 130, 180, 120)))
+    # 桶身竖纹（琥珀色镂空）
+    p.setBrush(QBrush(QColor("#E0A03C")))
     for i in (-1, 0, 1):
-        x = cx + i * size * 0.075 - size * 0.008
-        p.drawRoundedRect(QRectF(x, size * 0.45, size * 0.016, size * 0.24), 3, 3)
+        x = cx + i * size * 0.078 - size * 0.009
+        p.drawRoundedRect(QRectF(x, size * 0.46, size * 0.018, size * 0.25), 2, 2)
     p.end()
     return pm
 
@@ -116,25 +116,20 @@ def dir_icon_path() -> str:
 
 
 def badge_icon(index: int, text: str, size: int = 48) -> QIcon:
-    """为应用生成渐变圆角字母徽章。"""
+    """为应用生成方形暗底字母徽章，颜色只用于字形，避免界面出现彩色方块。"""
     pm = QPixmap(size, size)
     pm.fill(Qt.transparent)
     p = QPainter(pm)
     p.setRenderHint(QPainter.Antialiasing)
-    c1, c2 = PALETTE[index % len(PALETTE)]
-    rect = QRectF(1, 1, size - 2, size - 2)
-    path = QPainterPath()
-    path.addRoundedRect(rect, size * 0.22, size * 0.22)
-    grad = QLinearGradient(rect.topLeft(), rect.bottomRight())
-    grad.setColorAt(0, QColor(c1))
-    grad.setColorAt(1, QColor(c2))
-    p.fillPath(path, QBrush(grad))
-    p.setPen(QPen(QColor(255, 255, 255, 50), 1))
-    p.drawPath(path)
+    color = PALETTE[index % len(PALETTE)]
+    rect = QRectF(0.5, 0.5, size - 1, size - 1)
+    p.setPen(QPen(QColor("#2E3A48"), 1))
+    p.setBrush(QBrush(QColor("#161D26")))
+    p.drawRect(rect)
 
-    p.setPen(QColor("#FFFFFF"))
+    p.setPen(QColor(color))
     font = QFont("Microsoft YaHei UI")
-    font.setPixelSize(int(size * 0.52))
+    font.setPixelSize(int(size * 0.46))
     font.setBold(True)
     p.setFont(font)
     p.drawText(rect, Qt.AlignCenter, text)
