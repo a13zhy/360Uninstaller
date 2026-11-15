@@ -2,7 +2,9 @@
 
 Windows 10 / 11 上用于深度卸载 360 系软件、清理安装残留的桌面工具。不调官方卸载器，直接逐项拆除进程、服务、目录、注册表、计划任务与快捷方式；无权访问的文件会先接管所有权再强删。
 
-![主界面预览](https://github.com/a13zhy/360Uninstaller/releases/download/v1.2.7.261115/preview-main.png)
+![主界面预览](https://aka.doubaocdn.com/s/aVVjF64rUP)
+
+![残余检查小窗](https://aka.doubaocdn.com/s/b4i1bca7rN)
 
 ## 当前版本
 
