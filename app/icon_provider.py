@@ -48,7 +48,7 @@ def _draw_trash(size: int = 256) -> QPixmap:
     plate.setColorAt(0.55, QColor("#E0A03C"))
     plate.setColorAt(1.0, QColor("#B87B1E"))
     p.fillPath(path, QBrush(plate))
-    p.setPen(QPen(QColor("#F7CF92"), max(2, int(size * 0.014)))
+    p.setPen(QPen(QColor("#F7CF92"), max(2, int(size * 0.014))))
     p.drawPath(path)
 
     ink = QColor("#0E1319")
