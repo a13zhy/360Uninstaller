@@ -51,8 +51,6 @@ python -m venv .venv
   --add-data "assets;assets" main.py
 ```
 
-`assets/` 不提交到仓库，图标由 `tools/make_icon.py` 现场生成，CI 也是这么做的。
-
 ## 界面
 
 - 左侧主界面：读数条 + 应用列表（真实程序图标，取不到才用字母徽章；状态/占用列）；
