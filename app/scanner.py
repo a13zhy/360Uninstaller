@@ -138,6 +138,10 @@ class Scanner:
             if d and os.path.isdir(d):
                 size = cleanup.path_size(d) if with_size else 0
                 items.append(Item("dir", d, d, app["key"], app["name"], size))
+                for mod in self._modules_in_dir(d):
+                    items.append(Item("dll", mod, os.path.basename(mod),
+                                      app["key"], app["name"],
+                                      self._file_size(mod)))
 
         for r in app["regs"]:
             if registry_utils.key_exists(r):
@@ -151,7 +155,57 @@ class Scanner:
             if any(k.lower() in os.path.basename(sc).lower() for k in app["shortcuts"]):
                 items.append(Item("shortcut", sc, os.path.basename(sc), app["key"], app["name"]))
 
+        for sc in self._startup_items():
+            if any(k.lower() in os.path.basename(sc).lower() for k in app["shortcuts"]) or \
+                    _kw_hit(os.path.basename(sc), ["360", "qhsafe"]):
+                items.append(Item("startup", sc, os.path.basename(sc),
+                                  app["key"], app["name"], self._file_size(sc)))
+
         return items
+
+    def _file_size(self, path: str) -> int:
+        try:
+            return os.path.getsize(path)
+        except OSError:
+            return 0
+
+    def _modules_in_dir(self, folder: str, limit: int = 200) -> list[str]:
+        """只扫安装目录顶层，挑出 360 自己的 dll/sys/ocx，不递归也不碰系统目录。"""
+        found: list[str] = []
+        if not folder or not os.path.isdir(folder):
+            return found
+        try:
+            entries = sorted(os.listdir(folder))
+        except OSError:
+            return found
+        for name in entries:
+            low = name.lower()
+            if not low.endswith(constants.DLL_EXTS):
+                continue
+            if _kw_hit(low, constants.DLL_KEYWORDS):
+                path = os.path.join(folder, name)
+                if os.path.isfile(path):
+                    found.append(path)
+                    if len(found) >= limit:
+                        break
+        return found
+
+    def _startup_items(self) -> list[str]:
+        """开机启动文件夹里 360 相关的快捷方式 / 脚本。"""
+        found: list[str] = []
+        for base in constants.STARTUP_DIRS:
+            if not base or not os.path.isdir(base):
+                continue
+            try:
+                entries = os.listdir(base)
+            except OSError:
+                continue
+            for name in entries:
+                if not name.lower().endswith((".lnk", ".exe", ".bat", ".vbs", ".cmd")):
+                    continue
+                if _kw_hit(name, ["360", "qhsafe", "qihu"]):
+                    found.append(os.path.join(base, name))
+        return found
 
     def _shortcuts(self) -> list[str]:
         found = []
@@ -206,7 +260,33 @@ class Scanner:
             if _kw_hit(t, ["360", "qhsafe"]):
                 items.append(Item("task", t, t, "", "360 计划任务"))
 
+        for sc in self._startup_items():
+            items.append(Item("startup", sc, os.path.basename(sc),
+                              "", "360 开机启动项", self._file_size(sc)))
+
+        for mod in self._driver_modules():
+            items.append(Item("dll", mod, os.path.basename(mod),
+                              "", "360 驱动残留", self._file_size(mod)))
+
         return items
+
+    def _driver_modules(self) -> list[str]:
+        """系统驱动目录里只挑名字带 360 的 .sys，绝不整目录搬。"""
+        found: list[str] = []
+        drivers = constants.DRIVER_DIR
+        if not drivers or not os.path.isdir(drivers):
+            return found
+        try:
+            entries = os.listdir(drivers)
+        except OSError:
+            return found
+        for name in entries:
+            low = name.lower()
+            if low.endswith(constants.DLL_EXTS) and _kw_hit(low, constants.DLL_KEYWORDS):
+                path = os.path.join(drivers, name)
+                if os.path.isfile(path):
+                    found.append(path)
+        return found
 
     # ------------------------------------------------------------ 深度扫盘
     def deep_scan(self, keywords: list[str] | None = None,
@@ -221,6 +301,8 @@ class Scanner:
 
         roots = [r for r in constants.SCAN_ROOTS if r and os.path.exists(r)]
         # 追加其他盘符根目录下的一级常见目录
+        if constants.DRIVER_DIR and os.path.isdir(constants.DRIVER_DIR):
+            roots.append(constants.DRIVER_DIR)
         for drive in ("D:\\", "E:\\", "F:\\"):
             if os.path.isdir(drive):
                 for name in ("360", "Program Files", "Program Files (x86)"):
@@ -258,7 +340,8 @@ class Scanner:
                             size = os.path.getsize(full)
                         except OSError:
                             size = 0
-                        items.append(Item("file", full, full, "", "深度扫描", size))
+                        kind = "dll" if f.lower().endswith(constants.DLL_EXTS) else "file"
+                        items.append(Item(kind, full, full, "", "深度扫描", size))
                         if len(items) >= limit:
                             return items
 
@@ -304,6 +387,21 @@ class Scanner:
 
         for sc in self._shortcuts():
             items.append(Item("shortcut", sc, os.path.basename(sc), "", "残留快捷方式"))
+
+        for sc in self._startup_items():
+            items.append(Item("startup", sc, os.path.basename(sc),
+                              "", "残留启动项", self._file_size(sc)))
+
+        for app in constants.APPS:
+            for d in app["dirs"]:
+                if d and os.path.isdir(d):
+                    for mod in self._modules_in_dir(d):
+                        items.append(Item("dll", mod, os.path.basename(mod),
+                                          app["key"], app["name"], self._file_size(mod)))
+
+        for mod in self._driver_modules():
+            items.append(Item("dll", mod, os.path.basename(mod),
+                              "", "360 驱动残留", self._file_size(mod)))
 
         if deep:
             if progress:
