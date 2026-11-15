@@ -19,8 +19,8 @@ from ..tray import TrayController
 from ..worker import Worker
 from .residual_dialog import ResidualDialog
 from .update_dialog import UpdateDialog
-from .widgets import (AppRow, BottomFade, ConsoleWidget, PromoCard, StatCard,
-                      table_header)
+from .widgets import (AppRow, BottomFade, ConsoleWidget, PromoCard, ScanHud,
+                      StatCard, table_header)
 
 
 class MainWindow(QMainWindow):
@@ -44,6 +44,7 @@ class MainWindow(QMainWindow):
         self.check_worker = None
         self.update_worker = None
         self.tray: TrayController | None = None
+        self.hud: ScanHud | None = None
         self.preview_mode = env_flag(ENV_PREVIEW)
 
         self._ensure_log_dir()
@@ -125,6 +126,12 @@ class MainWindow(QMainWindow):
         lay.addLayout(titles)
 
         lay.addStretch(1)
+
+        self.btn_deepscan = QPushButton("深度扫描")
+        self.btn_deepscan.setObjectName("Ghost")
+        self.btn_deepscan.setCursor(Qt.PointingHandCursor)
+        self.btn_deepscan.setToolTip("在右下角小窗里显示扫盘进度，扫完再进结果窗口")
+        lay.addWidget(self.btn_deepscan)
 
         self.btn_update = QPushButton("检查更新")
         self.btn_update.setObjectName("Ghost")
@@ -261,6 +268,7 @@ class MainWindow(QMainWindow):
 
     def _wire(self):
         self.btn_rescan.clicked.connect(self.start_scan)
+        self.btn_deepscan.clicked.connect(self._start_deep_scan)
         self.btn_select_all.clicked.connect(self._toggle_select_all)
         self.btn_uninstall.clicked.connect(self._on_uninstall_clicked)
         self.btn_oneclick.clicked.connect(self._on_oneclick_clicked)
@@ -310,7 +318,7 @@ class MainWindow(QMainWindow):
         elif installed == 0:
             self.promo.set_button_state(False, "未检测到 360", "当前系统没有可清除的 360 组件")
         else:
-            self.promo.set_button_state(True, "立即清除",
+            self.promo.set_button_state(True, "彻底清除",
                                         f"一次勾选全部 {installed} 款 360 应用并执行完整拆除")
 
     def _update_action_state(self):
@@ -347,6 +355,8 @@ class MainWindow(QMainWindow):
             self.status_label.setText(stage)
             self.console.set_stage(stage)
         if not on:
+            if self.hud is not None:
+                self.hud.hide()
             # 任务结束后恢复“可滚动”提示与渐隐层正确状态
             QTimer.singleShot(0, self._update_more_hint)
 
@@ -524,6 +534,8 @@ class MainWindow(QMainWindow):
             size = sum(i.size for i in items)
             self.rows[key].set_state(installed, note, len(items),
                                      cleanup.human_size(size))
+            # 安装目录存在时优先用程序自己的 exe/ico
+            self.rows[key].set_real_icon(installed)
             if installed:
                 installed_count += 1
 
@@ -543,6 +555,48 @@ class MainWindow(QMainWindow):
                 f"{APP_NAME} {APP_VERSION} · {installed_count} 款 360 应用待处理")
         self._notify("扫描完成",
                      f"检测到 {installed_count} 款 360 应用，{len(self.items)} 个可清理项。")
+
+    def _start_deep_scan(self):
+        if self.busy:
+            return
+        self._busy(True, "深度扫描中…")
+        self.console.log("开始深度扫描：进程 / 服务 / 目录 / 注册表 / 启动项 / DLL / 磁盘残留",
+                         "title")
+        self.console.set_progress(0, "准备深度扫描")
+        if self.hud is None:
+            self.hud = ScanHud("深度扫描 · 全盘残留", self)
+            self.hud.cancel_clicked.connect(self._cancel_deep_scan)
+        self.hud.update_state("正在准备扫描…", 0)
+        self.hud.show_at_corner()
+
+        self.worker = Worker(Worker.MODE_RESIDUAL, {"deep": True}, parent=self)
+        self.worker.log.connect(lambda m: self.log(m))
+        self.worker.progress.connect(self._on_deep_progress)
+        self.worker.result.connect(self._on_deep_result)
+        self.worker.start()
+
+    def _on_deep_progress(self, pct: int, text: str):
+        self.console.set_progress(pct, text)
+        self.status_label.setText(text)
+        if self.hud is not None and self.hud.isVisible():
+            self.hud.update_state(text or "扫描中…", pct)
+
+    def _cancel_deep_scan(self):
+        if self.worker and self.worker.isRunning():
+            self.worker.request_stop()
+            if self.hud:
+                self.hud.update_state("正在停止…", self.hud.bar.value())
+
+    def _on_deep_result(self, data: dict):
+        if self.hud is not None:
+            self.hud.hide()
+        items = data.get("items", [])
+        self._busy(False, f"深度扫描完成：{len(items)} 项待处理")
+        self.log(f"深度扫描完成：共 {len(items)} 项残留", "ok")
+        dlg = ResidualDialog(self, deep=False, title="深度扫描结果", items=items)
+        dlg.finished_cleanup.connect(self._on_residual_cleanup)
+        dlg.finished.connect(lambda _code: QTimer.singleShot(0, self.start_scan))
+        dlg.show()
 
     # ------------------------------------------------------------ 卸载
     def _on_uninstall_clicked(self):
@@ -759,6 +813,8 @@ class MainWindow(QMainWindow):
         self.card_installed.set_value(str(installed))
         self.card_items.set_value(str(total_items))
         self.card_size.set_value(cleanup.human_size(total_size))
+        for app in APPS:
+            self.rows[app["key"]].set_real_icon(app["key"] in demo)
         self.status = {a["key"]: {"installed": a["key"] in demo} for a in APPS}
         self._refresh_promo()
 
