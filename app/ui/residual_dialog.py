@@ -10,13 +10,23 @@ from .. import cleanup, icon_provider
 from ..scanner import Item
 from ..worker import Worker
 from . import theme
+from .widgets import ScanHud
 
 
-KIND_COLORS = {
-    "process": "#A7B6C7", "service": "#4FB3A4", "dir": "#D3AC62",
-    "file": "#93AECB", "registry": "#C99280", "task": "#B58A9A",
-    "shortcut": "#7C8DA0",
-}
+def kind_color(kind: str) -> str:
+    """类型标签颜色取自当前主题，浅色/深色都保证对比度。"""
+    c = theme.COLORS
+    return {
+        "process": c["text_sub"],
+        "service": c["teal"],
+        "dir": c["warn"],
+        "file": c["accent"],
+        "dll": c["accent"],
+        "registry": c["danger"],
+        "task": c["teal"],
+        "startup": c["success"],
+        "shortcut": c["text_muted"],
+    }.get(kind, c["text_muted"])
 
 
 class ResidualRow(QWidget):
@@ -36,16 +46,16 @@ class ResidualRow(QWidget):
         kind = QLabel(item.kind_label)
         kind.setAlignment(Qt.AlignCenter)
         kind.setFixedWidth(56)
-        color = KIND_COLORS.get(item.kind, "#5A7D9A")
+        color = kind_color(item.kind)
         kind.setStyleSheet(
             f"color:{color}; background:transparent;"
-            f"border:1px solid {color}55; font-size:8pt; padding:1px 4px;"
+            f"border:1px solid {color}; font-size:8pt; padding:1px 4px;"
         )
         lay.addWidget(kind)
 
         text = QLabel(item.label)
         text.setToolTip(item.target)
-        text.setStyleSheet("font-size:9pt;")
+        text.setStyleSheet(f"font-size:9pt; color:{theme.COLORS['text']};")
         text.setTextInteractionFlags(Qt.TextSelectableByMouse)
         lay.addWidget(text, 1)
 
@@ -67,7 +77,8 @@ class ResidualDialog(QDialog):
 
     finished_cleanup = Signal(dict)
 
-    def __init__(self, parent=None, deep: bool = True, title: str = "残余项目检查"):
+    def __init__(self, parent=None, deep: bool = True, title: str = "残余项目检查",
+                 items: list[Item] | None = None):
         super().__init__(parent)
         self.setObjectName("ResidualDialog")
         self.setWindowTitle(title)
@@ -85,8 +96,14 @@ class ResidualDialog(QDialog):
         self._deleting = False
         self._emitted = False
         self._count_word = "项残留"
+        self._preloaded = list(items or [])
+        self.hud = None
 
         self._build()
+        if self._preloaded:
+            self.scan_box.setVisible(False)
+            self._on_scan_done({"items": self._preloaded,
+                                "total_size": sum(i.size for i in self._preloaded)})
 
     # ------------------------------------------------------------------ UI
     def _build(self):
@@ -227,11 +244,12 @@ class ResidualDialog(QDialog):
         self.list.setEnabled(True)
         self.empty.setVisible(False)
         self.stat_box.setVisible(False)
-        self.scan_box.setVisible(True)
+        # 深度扫描把进度放到右下角小窗，本窗口只留一句状态，避免两个进度条打架
+        self.scan_box.setVisible(not self.deep)
         self.scan_bar.setValue(0)
         self.scan_text.setText("正在扫描残余项目…")
         self.title.setText("正在检查残余项目…")
-        self.sub.setText("扫描进程、服务、目录、注册表、计划任务与磁盘残留文件")
+        self.sub.setText("扫描进程、服务、目录、注册表、启动项、DLL 与磁盘残留文件")
         self._deleting = False
         self._count_word = "项残留"
         self.btn_close.setText("跳过，稍后处理")
@@ -241,11 +259,24 @@ class ResidualDialog(QDialog):
         self._emitted = False
         self.clean_result = {}
 
+        if self.deep:
+            if self.hud is None:
+                self.hud = ScanHud("深度扫描 · 残余检查", self)
+                self.hud.cancel_clicked.connect(self._cancel_scan)
+            self.hud.update_state("正在准备扫描…", 0)
+            self.hud.show_at_corner()
+
         self.worker = Worker(Worker.MODE_RESIDUAL, {"deep": self.deep}, parent=self)
         self.worker.log.connect(lambda m: self.scan_text.setText(m))
         self.worker.progress.connect(self._on_progress)
         self.worker.result.connect(self._on_scan_done)
         self.worker.start()
+
+    def _cancel_scan(self):
+        if self.worker and self.worker.isRunning():
+            self.worker.request_stop()
+            if self.hud:
+                self.hud.update_state("正在停止…", self.hud.bar.value())
 
     def _populate_demo(self):
         """预览模式：填充示例残留，展示结果态。"""
@@ -269,6 +300,12 @@ class ResidualDialog(QDialog):
                  r"HKCU\Software\360Safe", "", "残留注册表"),
             Item("registry", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run::360Safetray",
                  "360Safetray", "", "开机启动项", extra={"value_name": "360Safetray"}),
+            Item("dll", r"C:\Program Files (x86)\360\360Safe\360Base.dll",
+                 "360Base.dll", "", "残留 DLL", 3_145_728),
+            Item("dll", r"C:\Windows\System32\360FsFlt.sys",
+                 "360FsFlt.sys", "", "驱动残留", 286_720),
+            Item("startup", r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup\360Safe.lnk",
+                 "360Safe.lnk", "", "开机启动项", 1024),
             Item("shortcut", r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs\360安全卫士.lnk",
                  "360安全卫士.lnk", "", "残留快捷方式"),
         ]
@@ -284,10 +321,14 @@ class ResidualDialog(QDialog):
         self.scan_bar.setValue(pct)
         if text:
             self.scan_text.setText(text)
+        if self.hud is not None and self.hud.isVisible():
+            self.hud.update_state(text or "扫描中…", pct)
 
     def _on_scan_done(self, data: dict):
         self.items = data.get("items", [])
         self.scan_box.setVisible(False)
+        if self.hud is not None:
+            self.hud.hide()
         self.title.setText("残余项目检查结果")
         self.sub.setText("勾选需要删除的项目，逐项执行删除并回报结果")
 
@@ -405,6 +446,8 @@ class ResidualDialog(QDialog):
                 return
             self.worker.request_stop()
             self.worker.wait(3000)
+        if self.hud is not None:
+            self.hud.hide()
         self._emit_cleanup()
         self.accept()
 
@@ -425,5 +468,7 @@ class ResidualDialog(QDialog):
                 return
             self.worker.request_stop()
             self.worker.wait(3000)
+        if self.hud is not None:
+            self.hud.hide()
         self._emit_cleanup()
         super().closeEvent(event)
