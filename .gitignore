@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+build/
+dist/
+ui_preview*.png
+build_log.txt
+.DS_Store
