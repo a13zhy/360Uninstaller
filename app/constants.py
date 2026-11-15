@@ -270,30 +270,6 @@ APPS = [
         "shortcuts": ["360浏览器极速版"],
         "assist": True,
     },
-    {
-        "key": "360wifi",
-        "name": "360 随身 WiFi",
-        "desc": "无线网卡驱动与连接工具",
-        "processes": ["360wifidev.exe", "360wifi.exe"],
-        "services": ["360wifi"],
-        "dirs": [_p(PF86, "360", "360WiFi"), _p(PF, "360", "360WiFi")],
-        "regs": [r"HKLM\SOFTWARE\WOW6432Node\360WiFi", r"HKCU\Software\360WiFi"],
-        "tasks": [],
-        "shortcuts": ["360随身WiFi"],
-        "assist": True,
-    },
-    {
-        "key": "360buy",
-        "name": "360 商城",
-        "desc": "商城客户端与推广组件",
-        "processes": ["360buy.exe", "360shop.exe"],
-        "services": [],
-        "dirs": [_p(PF86, "360", "360Buy"), _p(LOCALAPPDATA, "360Buy")],
-        "regs": [r"HKCU\Software\360Buy"],
-        "tasks": [],
-        "shortcuts": ["360商城"],
-        "assist": True,
-    },
 ]
 
 # 360 自我保护相关驱动 / 服务关键词（强力删除前先尝试停止，避免文件被守护）
@@ -333,8 +309,7 @@ COMMON_REG_ROOTS = [
 REG_KEYWORDS = ["360safe", "360sd", "360se", "360chrome", "360zip", "360drvmgr",
                 "360softmgr", "360yunpan", "360game", "360mobile", "360ys",
                 "360wallpaper", "qhsafe", "zhudongfangyu", "奇虎", "360安全",
-                "360safelite", "360aibrowser", "360kuai", "360desktop", "360seplus",
-                "360wifi", "360buy"]
+                "360safelite", "360aibrowser", "360kuai", "360desktop", "360seplus"]
 
 UNINSTALL_KEYS = [
     r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
