@@ -40,7 +40,8 @@ class UpdateDialog(QDialog):
         self.setObjectName("UpdateDialog")
         self.setWindowTitle("检查更新")
         self.setWindowIcon(icon_provider.app_icon())
-        self.setMinimumWidth(560)
+        self.setMinimumWidth(600)
+        self.setMinimumHeight(460)
         self.setModal(True)
         self._build()
 
@@ -72,8 +73,8 @@ class UpdateDialog(QDialog):
         self.notes = QTextBrowser()
         self.notes.setObjectName("UpdateNotes")
         self.notes.setPlainText(notes or "本次更新没有提供详细说明，可直接下载安装。")
-        self.notes.setMinimumHeight(180)
-        self.notes.setMaximumHeight(240)
+        self.notes.setMinimumHeight(210)
+        self.notes.setMaximumHeight(280)
         root.addWidget(self.notes)
 
         self.link = QLabel(
@@ -93,6 +94,8 @@ class UpdateDialog(QDialog):
 
         self.status = QLabel("")
         self.status.setObjectName("DialogSub")
+        self.status.setStyleSheet(
+            f"color:{theme.COLORS['text_sub']}; font-size:9.5pt;")
         self.status.setVisible(False)
         root.addWidget(self.status)
 
