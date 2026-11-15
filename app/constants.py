@@ -4,7 +4,7 @@ import os
 
 APP_NAME = "残留清理卫士"
 APP_NAME_EN = "ResidualCleaner"
-APP_VERSION = "1.2.7.261115"
+APP_VERSION = "1.2.8.261115"
 APP_TAGLINE = "Windows 深度卸载与残留清理"
 
 LOG_DIR = os.path.join(
@@ -207,6 +207,93 @@ APPS = [
         "tasks": [],
         "shortcuts": ["360壁纸"],
     },
+    {
+        "key": "360safelite",
+        "name": "360 安全卫士极速版",
+        "desc": "极速版主程序与轻量防护组件",
+        "processes": ["360safelite.exe", "360safelitetray.exe", "360safecenter.exe"],
+        "services": ["360safelite", "360safecenter"],
+        "dirs": [_p(PF86, "360", "360SafeLite"), _p(PF, "360", "360SafeLite"),
+                 _p(PROGRAMDATA, "360SafeLite"), _p(APPDATA, "360SafeLite")],
+        "regs": [r"HKLM\SOFTWARE\WOW6432Node\360SafeLite", r"HKCU\Software\360SafeLite"],
+        "tasks": ["360安全卫士极速版"],
+        "shortcuts": ["360安全卫士极速版"],
+        "assist": True,
+    },
+    {
+        "key": "360aibrowser",
+        "name": "360 AI 浏览器",
+        "desc": "AI 浏览器内核、助手服务与模型缓存",
+        "processes": ["360aibrowser.exe", "360aiservice.exe", "360aitray.exe"],
+        "services": ["360aibrowser"],
+        "dirs": [_p(PF86, "360", "360AIBrowser"), _p(PF, "360AIBrowser"),
+                 _p(LOCALAPPDATA, "360AIBrowser"), _p(APPDATA, "360AIBrowser")],
+        "regs": [r"HKCU\Software\360AIBrowser", r"HKLM\SOFTWARE\WOW6432Node\360AIBrowser"],
+        "tasks": ["360AI浏览器"],
+        "shortcuts": ["360AI浏览器", "360 AI浏览器"],
+    },
+    {
+        "key": "360kuai",
+        "name": "360 快剪辑",
+        "desc": "视频剪辑客户端与素材缓存",
+        "processes": ["360kuai.exe", "360kuijian.exe", "kuijian.exe"],
+        "services": [],
+        "dirs": [_p(PF86, "360", "360Kuai"), _p(PF, "360", "360KuaiJian"),
+                 _p(LOCALAPPDATA, "360Kuai"), _p(APPDATA, "360Kuai")],
+        "regs": [r"HKCU\Software\360Kuai", r"HKLM\SOFTWARE\WOW6432Node\360Kuai"],
+        "tasks": ["360快剪辑"],
+        "shortcuts": ["360快剪辑"],
+        "assist": True,
+    },
+    {
+        "key": "360desktop",
+        "name": "360 桌面整理",
+        "desc": "桌面图标整理、右键扩展与常驻进程",
+        "processes": ["360desktop.exe", "360desktoplite.exe", "360desktoplite64.exe"],
+        "services": [],
+        "dirs": [_p(PF86, "360", "360Desktop"), _p(PF86, "360", "360DesktopLite"),
+                 _p(APPDATA, "360Desktop"), _p(PROGRAMDATA, "360Desktop")],
+        "regs": [r"HKCU\Software\360Desktop", r"HKLM\SOFTWARE\WOW6432Node\360Desktop"],
+        "tasks": [],
+        "shortcuts": ["360桌面整理"],
+        "assist": True,
+    },
+    {
+        "key": "360browserplus",
+        "name": "360 浏览器极速版",
+        "desc": "浏览器精简版主程序与本地缓存",
+        "processes": ["360seplus.exe", "360chromelite.exe"],
+        "services": [],
+        "dirs": [_p(PF86, "360", "360SEPlus"), _p(LOCALAPPDATA, "360SEPlus")],
+        "regs": [r"HKCU\Software\360SEPlus"],
+        "tasks": [],
+        "shortcuts": ["360浏览器极速版"],
+        "assist": True,
+    },
+    {
+        "key": "360wifi",
+        "name": "360 随身 WiFi",
+        "desc": "无线网卡驱动与连接工具",
+        "processes": ["360wifidev.exe", "360wifi.exe"],
+        "services": ["360wifi"],
+        "dirs": [_p(PF86, "360", "360WiFi"), _p(PF, "360", "360WiFi")],
+        "regs": [r"HKLM\SOFTWARE\WOW6432Node\360WiFi", r"HKCU\Software\360WiFi"],
+        "tasks": [],
+        "shortcuts": ["360随身WiFi"],
+        "assist": True,
+    },
+    {
+        "key": "360buy",
+        "name": "360 商城",
+        "desc": "商城客户端与推广组件",
+        "processes": ["360buy.exe", "360shop.exe"],
+        "services": [],
+        "dirs": [_p(PF86, "360", "360Buy"), _p(LOCALAPPDATA, "360Buy")],
+        "regs": [r"HKCU\Software\360Buy"],
+        "tasks": [],
+        "shortcuts": ["360商城"],
+        "assist": True,
+    },
 ]
 
 # 360 自我保护相关驱动 / 服务关键词（强力删除前先尝试停止，避免文件被守护）
@@ -245,7 +332,9 @@ COMMON_REG_ROOTS = [
 
 REG_KEYWORDS = ["360safe", "360sd", "360se", "360chrome", "360zip", "360drvmgr",
                 "360softmgr", "360yunpan", "360game", "360mobile", "360ys",
-                "360wallpaper", "qhsafe", "zhudongfangyu", "奇虎", "360安全"]
+                "360wallpaper", "qhsafe", "zhudongfangyu", "奇虎", "360安全",
+                "360safelite", "360aibrowser", "360kuai", "360desktop", "360seplus",
+                "360wifi", "360buy"]
 
 UNINSTALL_KEYS = [
     r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
@@ -291,6 +380,22 @@ SCAN_ROOTS = [
 
 FILE_KEYWORDS = ["360", "qhsafe", "qihu"]
 
+# 深度扫盘时按后缀识别的 360 模块（DLL / 驱动 / 可执行）
+DLL_KEYWORDS = [
+    "360base", "360common", "360safe", "360sd", "360tray", "360se", "360chrome",
+    "360net", "360ui", "360util", "360box", "360anti", "360fsflt", "360self",
+    "zhudongfangyu", "qhactivedefense", "qhsafe", "qihu",
+]
+DLL_EXTS = (".dll", ".sys", ".ocx", ".cpl")
+
+# 开机启动文件夹（用户级 + 公共级），这里面的 360 快捷方式会被当启动项清理
+STARTUP_DIRS = [
+    _p(PROGRAMDATA, "Microsoft", "Windows", "Start Menu", "Programs", "Startup"),
+    _p(APPDATA, "Microsoft", "Windows", "Start Menu", "Programs", "Startup"),
+]
+
+DRIVER_DIR = _p(WINDIR, "System32", "drivers")
+
 # 卸载后需要复扫的注册表分支
 RESIDUAL_REG_PATHS = [
     r"HKLM\SOFTWARE\WOW6432Node\360Safe",
@@ -307,9 +412,12 @@ KIND_LABELS = {
     "service": "服务",
     "dir": "目录",
     "file": "文件",
+    "dll": "DLL",
     "registry": "注册表",
     "task": "计划任务",
+    "startup": "启动项",
     "shortcut": "快捷方式",
 }
 
-KIND_ORDER = ["process", "service", "task", "dir", "file", "registry", "shortcut"]
+KIND_ORDER = ["process", "service", "task", "startup", "dir", "file", "dll",
+              "registry", "shortcut"]
