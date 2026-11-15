@@ -41,8 +41,9 @@ class AppRow(QFrame):
         self.setProperty("checked", "false")
         self.setProperty("installed", "false")
         self.setProperty("dim", "false")
-        self.setFixedHeight(46)
+        self.setFixedHeight(48)
         self.setCursor(Qt.PointingHandCursor)
+        self._index = index
 
         lay = QHBoxLayout(self)
         lay.setContentsMargins(ROW_MARGIN_H, 2, ROW_MARGIN_H, 2)
@@ -61,6 +62,7 @@ class AppRow(QFrame):
         badge.setPixmap(icon_provider.badge_icon(index, self._initial(app["name"]), COL_BADGE)
                         .pixmap(COL_BADGE, COL_BADGE))
         badge.setFixedSize(COL_BADGE, COL_BADGE)
+        self.badge = badge
         lay.addWidget(badge)
 
         text_box = QVBoxLayout()
@@ -131,6 +133,18 @@ class AppRow(QFrame):
         self.style().unpolish(self)
         self.style().polish(self)
 
+    def set_real_icon(self, on: bool):
+        """扫描到安装目录后换成程序真实图标；没拿到就保留字母徽章。"""
+        if not on:
+            self.badge.setPixmap(icon_provider.badge_icon(
+                self._index, self._initial(self.app["name"]), COL_BADGE)
+                .pixmap(COL_BADGE, COL_BADGE))
+            return
+        if not icon_provider.set_real_icon(self.badge, self.app, self._index, COL_BADGE):
+            self.badge.setPixmap(icon_provider.badge_icon(
+                self._index, self._initial(self.app["name"]), COL_BADGE)
+                .pixmap(COL_BADGE, COL_BADGE))
+
     def is_checked(self) -> bool:
         return self.cb.isChecked()
 
@@ -178,6 +192,7 @@ def table_header() -> QWidget:
 
     state_head = _label("状态", "HeadCell")
     state_head.setFixedWidth(COL_STATE)
+    state_head.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
     lay.addWidget(state_head)
 
     size_head = _label("占用", "HeadCell")
@@ -247,7 +262,7 @@ class ConsoleWidget(QFrame):
         self.console.setFont(mono)
         self.console.setPlaceholderText("READY · 选择左侧操作，或等待扫描结果")
         pal = self.console.palette()
-        pal.setColor(pal.ColorRole.PlaceholderText, QColor("#42566B"))
+        pal.setColor(pal.ColorRole.PlaceholderText, QColor(theme.COLORS["console_dim"]))
         self.console.setPalette(pal)
         lay.addWidget(self.console, 1)
 
@@ -295,13 +310,14 @@ class ConsoleWidget(QFrame):
         return card, val
 
     def log(self, message: str, level: str = "info"):
-        color = {"info": "#C4D3E2", "ok": "#55D08C", "warn": "#E9B269",
-                 "err": "#F27378", "title": "#E0A03C"}.get(level, "#C4D3E2")
+        c = theme.COLORS
+        color = {"info": c["console_text"], "ok": c["success"], "warn": c["warn"],
+                 "err": c["danger"], "title": c["accent"]}.get(level, c["console_text"])
         ts = time.strftime("%H:%M:%S")
         safe = (message.replace("&", "&amp;").replace("<", "&lt;")
                 .replace(">", "&gt;"))
         self.console.appendHtml(
-            f'<span style="color:#4E6176">{ts}&nbsp;&nbsp;</span>'
+            f'<span style="color:{c["console_dim"]}">{ts}&nbsp;&nbsp;</span>'
             f'<span style="color:{color}">{safe}</span>'
         )
         sb = self.console.verticalScrollBar()
@@ -344,15 +360,15 @@ class PromoCard(QFrame):
         text_box.setSpacing(2)
         kicker = _label("360 全家桶 · 彻底清除", "PromoKicker")
         title = _label("360 一键全部移除", "PromoTitle")
-        desc = _label("进程 / 服务 / 目录 / 注册表 / 计划任务 / 快捷方式；"
-                      "无权访问自动接管所有权并强删", "PromoDesc")
+        desc = _label("进程 / 服务 / 目录 / 注册表 / 启动项 / DLL 与驱动 / 快捷方式；"
+                      "无权访问自动接管所有权并强力删除", "PromoDesc")
         desc.setWordWrap(True)
         text_box.addWidget(kicker)
         text_box.addWidget(title)
         text_box.addWidget(desc)
         lay.addLayout(text_box, 1)
 
-        self.btn = QPushButton("全部移除")
+        self.btn = QPushButton("彻底清除")
         self.btn.setObjectName("PromoBtn")
         self.btn.setCursor(Qt.PointingHandCursor)
         self.btn.setMinimumWidth(112)
@@ -412,3 +428,90 @@ class BottomFade(QWidget):
         gradient.setColorAt(1.0, bottom)
         painter = QPainter(self)
         painter.fillRect(self.rect(), gradient)
+
+
+class ScanHud(QFrame):
+    """右下角悬浮进度窗：无边框、置顶、贴着工作区右下角。
+
+    深度扫盘时用它显示进度，主窗口和残余检查窗口都能复用；
+    取消按钮只发信号，具体停止由调用方处理。
+    """
+
+    cancel_clicked = Signal()
+
+    def __init__(self, title: str = "深度扫描", parent=None):
+        super().__init__(None)
+        self._parent_window = parent
+        self.setObjectName("ScanHud")
+        self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        self.setAttribute(Qt.WA_ShowWithoutActivating, True)
+        self.setFixedWidth(320)
+        self.setFixedHeight(96)
+        self._build(title)
+
+    def _build(self, title: str):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(14, 11, 12, 11)
+        root.setSpacing(6)
+
+        head = QHBoxLayout()
+        head.setSpacing(6)
+        self.title = QLabel(title)
+        self.title.setObjectName("HudTitle")
+        head.addWidget(self.title)
+        head.addStretch(1)
+        self.pct = QLabel("0%")
+        self.pct.setObjectName("HudPct")
+        head.addWidget(self.pct)
+        self.btn_close = QPushButton("✕")
+        self.btn_close.setObjectName("HudClose")
+        self.btn_close.setFixedSize(18, 18)
+        self.btn_close.setCursor(Qt.PointingHandCursor)
+        self.btn_close.clicked.connect(self.cancel_clicked.emit)
+        head.addWidget(self.btn_close)
+        root.addLayout(head)
+
+        self.text = QLabel("正在准备…")
+        self.text.setObjectName("HudText")
+        self.text.setWordWrap(False)
+        root.addWidget(self.text)
+
+        self.bar = QProgressBar()
+        self.bar.setObjectName("HudBar")
+        self.bar.setRange(0, 100)
+        self.bar.setValue(0)
+        self.bar.setFixedHeight(4)
+        self.bar.setTextVisible(False)
+        root.addWidget(self.bar)
+
+    # ------------------------------------------------------------------
+    def _target_rect(self):
+        screen = None
+        if self._parent_window is not None:
+            screen = self._parent_window.screen()
+        if screen is None:
+            from PySide6.QtWidgets import QApplication
+            screen = QApplication.primaryScreen()
+        if screen is None:
+            return None
+        return screen.availableGeometry()
+
+    def show_at_corner(self):
+        self.adjustSize()
+        geo = self._target_rect()
+        if geo is not None:
+            self.move(geo.right() - self.width() - 18,
+                      geo.bottom() - self.height() - 18)
+        self.show()
+        self.raise_()
+
+    def update_state(self, text: str, pct: int | None = None, detail: str = ""):
+        if pct is not None:
+            self.bar.setValue(max(0, min(100, pct)))
+            self.pct.setText(f"{max(0, min(100, pct))}%")
+        metrics = self.fontMetrics()
+        elided = metrics.elidedText(text, Qt.ElideRight, self.width() - 30)
+        self.text.setText(elided if not detail else f"{elided}  {detail}")
+
+    def set_title(self, title: str):
+        self.title.setText(title)
