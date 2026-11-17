@@ -10,13 +10,15 @@ from PySide6.QtWidgets import (QApplication, QFrame, QGridLayout, QHBoxLayout,
                                QScrollArea, QSizePolicy, QSystemTrayIcon,
                                QVBoxLayout, QWidget)
 
-from .. import cleanup, elevation, icon_provider, updater
+from .. import (bootguard, cleanup, elevation, icon_provider, system_actions,
+                updater)
 from ..constants import (APP_NAME, APP_NAME_EN, APP_TAGLINE, APP_VERSION,
                          APPS, ENV_NO_DISCLAIMER, ENV_PREVIEW, LOG_DIR,
                          LOG_FILE, env_flag)
 from ..scanner import Item
 from ..tray import TrayController
 from ..worker import Worker
+from .patrol_window import PatrolWindow
 from .residual_dialog import ResidualDialog
 from .update_dialog import UpdateDialog
 from .widgets import (AppRow, BottomFade, ConsoleWidget, PromoCard, ScanHud,
@@ -45,6 +47,8 @@ class MainWindow(QMainWindow):
         self.update_worker = None
         self.tray: TrayController | None = None
         self.hud: ScanHud | None = None
+        self.patrol: PatrolWindow | None = None
+        self._last_cleanup: dict | None = None
         self.preview_mode = env_flag(ENV_PREVIEW)
 
         self._ensure_log_dir()
@@ -138,6 +142,13 @@ class MainWindow(QMainWindow):
         self.btn_update.setCursor(Qt.PointingHandCursor)
         self.btn_update.setToolTip("从 GitHub Releases 检查新版本，可下载后自动安装")
         lay.addWidget(self.btn_update)
+
+        self.badge_boot = QLabel("巡检：关")
+        self.badge_boot.setObjectName("AdminBadge")
+        self.badge_boot.setCursor(Qt.PointingHandCursor)
+        self.badge_boot.setToolTip("开机巡检：勾选后下次开机会在右下角弹出巡检小窗，随时可关闭")
+        self.badge_boot.mousePressEvent = self._on_boot_badge_clicked  # type: ignore
+        lay.addWidget(self.badge_boot)
 
         self.badge_version = QLabel(f"v{APP_VERSION}")
         self.badge_version.setObjectName("VersionBadge")
@@ -371,13 +382,17 @@ class MainWindow(QMainWindow):
             self.tray = TrayController(self)
             self.tray.show_requested.connect(self._restore_window)
             self.tray.scan_requested.connect(self._tray_scan)
+            self.tray.patrol_requested.connect(self._start_patrol)
+            self.tray.boot_toggle_requested.connect(self._toggle_boot_patrol)
             self.tray.update_requested.connect(lambda: self._check_updates(False))
             self.tray.quit_requested.connect(self.quit_app)
             self.tray.start()
+            self.tray.set_boot_state(bootguard.is_enabled())
             self.log("托盘常驻已启用：关闭窗口会最小化到右下角托盘", "info")
         except Exception as exc:
             self.tray = None
             self.log(f"托盘初始化失败：{exc}", "warn")
+        self._refresh_boot_badge()
 
     def _restore_window(self):
         self.showNormal()
@@ -394,6 +409,104 @@ class MainWindow(QMainWindow):
     def _notify(self, title: str, message: str):
         if self.tray and self.tray.available():
             self.tray.notify(title, message)
+
+    # ------------------------------------------------------------ 开机巡检
+    def _refresh_boot_badge(self):
+        on = bootguard.is_enabled()
+        self.badge_boot.setText("巡检：开" if on else "巡检：关")
+        self.badge_boot.setProperty("on", "true" if on else "false")
+        self.badge_boot.setProperty("warn", "false" if on else "true")
+        self.badge_boot.style().unpolish(self.badge_boot)
+        self.badge_boot.style().polish(self.badge_boot)
+        if self.tray:
+            self.tray.set_boot_state(on)
+
+    def _on_boot_badge_clicked(self, _event):
+        self._toggle_boot_patrol(not bootguard.is_enabled())
+
+    def _toggle_boot_patrol(self, enabled: bool):
+        """启动项只由这个开关写入，写之前把边界讲清楚。"""
+        if enabled and not bootguard.is_enabled():
+            ret = QMessageBox.question(
+                self, "开启开机巡检",
+                "开启后，下次开机会在右下角自动弹出巡检小窗，扫描全部 360 目录：\n\n"
+                "· 窗口一直可见，带 ✕ 关闭，不会藏在后台；\n"
+                "· 找到项目后仍要你点“立即清理”并二次确认才会删；\n"
+                "· 删除完成后才问你要不要重启，不会自动重启；\n"
+                "· 随时可在本界面或托盘菜单里关掉这一项，不留后台服务。\n\n"
+                "确定登记到下次开机启动吗？",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if ret != QMessageBox.Yes:
+                if self.tray:
+                    self.tray.set_boot_state(False)
+                self._refresh_boot_badge()
+                return
+
+        ok, msg = bootguard.sync_state(bool(enabled))
+        if not ok:
+            QMessageBox.warning(self, "开机巡检设置失败", msg)
+            self._refresh_boot_badge()
+            return
+        self.log(msg, "ok" if enabled else "info")
+        self.status_label.setText(msg)
+        self._refresh_boot_badge()
+        if self.tray and enabled:
+            self.tray.notify("开机巡检已开启", "下次开机会在右下角自动巡检 360 残留。")
+
+    def _start_patrol(self):
+        """从托盘或界面手动拉起巡检小窗（不写注册表）。"""
+        if getattr(self, "patrol", None) is None:
+            self.patrol = PatrolWindow(self, auto_start=True)
+        self.patrol.show_at_corner()
+
+    def _offer_boot_patrol(self):
+        """清理完成后问一次要不要登记开机巡检，拒绝后本轮不再重复问。"""
+        if bootguard.is_enabled() or self.settings.value("boot_offer_asked", "false") == "true":
+            return
+        self.settings.setValue("boot_offer_asked", "true")
+        ret = QMessageBox.question(
+            self, "下次开机自动复查？",
+            "这次清理已经完成。要不要登记一次开机巡检？\n\n"
+            "下次开机时右下角会弹出小窗，扫描各个 360 目录和散落残留；\n"
+            "窗口可见、可关闭，删除前仍需你确认，也不会自动重启。\n\n"
+            "登记后随时可以在顶栏“巡检”或托盘菜单里关掉。",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if ret == QMessageBox.Yes:
+            self._toggle_boot_patrol(True)
+        else:
+            self.log("用户未开启开机巡检", "info")
+
+    def _ask_reboot(self, ok: int, fail: int, pending: int) -> bool:
+        """删除后询问是否重启；只有用户点“是”才安排重启。"""
+        if ok == 0 and pending == 0:
+            return False
+        if pending or fail:
+            text = (f"清理完成：成功 {ok} 项，失败 {fail} 项，"
+                    f"{pending} 项已登记到重启后删除。\n\n"
+                    "现在重启电脑完成收尾吗？")
+        else:
+            text = f"清理完成：成功 {ok} 项。\n\n建议重启一次释放被占用的文件，现在重启吗？"
+        ret = QMessageBox.question(
+            self, "是否重启电脑",
+            text + "\n\n选择“是”后有 20 秒倒计时，期间可执行 shutdown /a 取消。",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if ret != QMessageBox.Yes:
+            self.log("用户选择稍后重启", "info")
+            return False
+        ok_sched, msg = system_actions.schedule_reboot(20)
+        if ok_sched:
+            QMessageBox.information(self, "已安排重启",
+                                    "系统将在 20 秒后重启。\n取消命令：shutdown /a")
+            self.log(msg, "warn")
+            return True
+        QMessageBox.warning(self, "重启失败", f"无法安排重启：{msg}\n请手动重启电脑。")
+        return False
 
     def _auto_check_update(self):
         try:
@@ -595,7 +708,7 @@ class MainWindow(QMainWindow):
         self.log(f"深度扫描完成：共 {len(items)} 项残留", "ok")
         dlg = ResidualDialog(self, deep=False, title="深度扫描结果", items=items)
         dlg.finished_cleanup.connect(self._on_residual_cleanup)
-        dlg.finished.connect(lambda _code: QTimer.singleShot(0, self.start_scan))
+        dlg.finished.connect(self._after_residual_dialog)
         dlg.show()
 
     # ------------------------------------------------------------ 卸载
@@ -658,12 +771,30 @@ class MainWindow(QMainWindow):
             "卸载完成 · 残余项目检查"))
 
     def _open_residual_dialog(self, title: str = "残余项目检查"):
+        self._last_cleanup = None
         dlg = ResidualDialog(self, deep=True, title=title)
         dlg.finished_cleanup.connect(self._on_residual_cleanup)
         # 无论“删除”还是“跳过”，关闭后都重扫一次，避免主界面停在旧状态
-        dlg.finished.connect(lambda _code: QTimer.singleShot(0, self.start_scan))
+        dlg.finished.connect(self._after_residual_dialog)
         dlg.show()
         QTimer.singleShot(80, dlg.start_scan)
+
+    def _after_residual_dialog(self, _code: int = 0):
+        """残余小窗关闭后再问重启与开机巡检，避免提示被模态窗口盖住。"""
+        QTimer.singleShot(0, self.start_scan)
+        if not self._last_cleanup:
+            return
+        QTimer.singleShot(200, self._post_cleanup_flow)
+
+    def _post_cleanup_flow(self):
+        result = self._last_cleanup
+        self._last_cleanup = None
+        if not result:
+            return
+        rebooted = self._ask_reboot(result.get("ok", 0), result.get("fail", 0),
+                                    result.get("pending", 0))
+        if not rebooted:
+            self._offer_boot_patrol()
 
     def _on_residual_cleanup(self, data: dict):
         ok = data.get("ok", 0)
@@ -681,6 +812,8 @@ class MainWindow(QMainWindow):
         self._notify("残余清理完成",
                      f"成功 {ok} 项，失败 {fail} 项，释放 {freed}"
                      + (f"，{pending} 项待重启后删除" if pending else ""))
+        if ok or pending:
+            self._last_cleanup = {"ok": ok, "fail": fail, "pending": pending}
 
     # ------------------------------------------------------------ 一键清除
     def _on_promo_clicked(self):
