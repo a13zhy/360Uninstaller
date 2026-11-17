@@ -16,11 +16,16 @@ def is_admin() -> bool:
 
 
 def _exe_command() -> tuple[str, str]:
-    """返回 (可执行文件, 参数)。兼容 PyInstaller 单文件与源码运行。"""
+    """返回 (可执行文件, 参数)。兼容 PyInstaller 单文件与源码运行。
+
+    原始命令行参数必须带上，否则开机巡检的 --boot-scan 会在提权后丢失。
+    """
+    extra = " ".join(f'"{a}"' if " " in a else a for a in sys.argv[1:])
     if getattr(sys, "frozen", False):
-        return sys.executable, ""
+        return sys.executable, extra
     script = os.path.abspath(sys.argv[0])
-    return sys.executable, f'"{script}"'
+    params = f'"{script}"'
+    return sys.executable, f"{params} {extra}".strip()
 
 
 def relaunch_as_admin() -> bool:

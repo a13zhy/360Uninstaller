@@ -10,6 +10,8 @@ from . import constants, icon_provider
 class TrayController(QObject):
     show_requested = Signal()
     scan_requested = Signal()
+    patrol_requested = Signal()
+    boot_toggle_requested = Signal(bool)
     update_requested = Signal()
     quit_requested = Signal()
 
@@ -24,10 +26,16 @@ class TrayController(QObject):
         menu.setObjectName("TrayMenu")
         self.act_show = QAction("显示主窗口", menu)
         self.act_scan = QAction("重新扫描", menu)
+        self.act_patrol = QAction("立即巡检残余", menu)
+        self.act_boot = QAction("开机自动巡检", menu)
+        self.act_boot.setCheckable(True)
+        self.act_boot.setToolTip("下次开机时在右下角弹出巡检小窗，随时可撤销")
         self.act_update = QAction("检查更新", menu)
         self.act_quit = QAction("退出", menu)
         menu.addAction(self.act_show)
         menu.addAction(self.act_scan)
+        menu.addAction(self.act_patrol)
+        menu.addAction(self.act_boot)
         menu.addSeparator()
         menu.addAction(self.act_update)
         menu.addSeparator()
@@ -37,6 +45,9 @@ class TrayController(QObject):
 
         self.act_show.triggered.connect(self.show_requested.emit)
         self.act_scan.triggered.connect(self.scan_requested.emit)
+        self.act_patrol.triggered.connect(self.patrol_requested.emit)
+        self.act_boot.triggered.connect(
+            lambda checked: self.boot_toggle_requested.emit(bool(checked)))
         self.act_update.triggered.connect(self.update_requested.emit)
         self.act_quit.triggered.connect(self.quit_requested.emit)
         self.icon.activated.connect(self._on_activated)
@@ -54,6 +65,12 @@ class TrayController(QObject):
 
     def set_tooltip(self, text: str):
         self.icon.setToolTip(text)
+
+    def set_boot_state(self, enabled: bool):
+        """同步“开机自动巡检”勾选状态，避免界面与注册表不一致。"""
+        self.act_boot.blockSignals(True)
+        self.act_boot.setChecked(bool(enabled))
+        self.act_boot.blockSignals(False)
 
     def notify(self, title: str, message: str, seconds: int = 4):
         try:

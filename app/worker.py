@@ -27,6 +27,7 @@ class Worker(QThread):
     MODE_UNINSTALL = "uninstall"
     MODE_RESIDUAL = "residual"
     MODE_CLEAN = "clean"
+    MODE_PATROL = "patrol"
 
     def __init__(self, mode: str, payload: dict | None = None, parent=None):
         super().__init__(parent)
@@ -50,6 +51,8 @@ class Worker(QThread):
                 self._do_residual()
             elif self.mode == self.MODE_CLEAN:
                 self._do_clean()
+            elif self.mode == self.MODE_PATROL:
+                self._do_patrol()
         except Exception as exc:  # pragma: no cover
             self.log.emit(f"任务异常终止：{exc}")
             self.result.emit({"error": str(exc)})
@@ -110,6 +113,7 @@ class Worker(QThread):
         items = scanner.scan_residual(
             deep=deep,
             progress=lambda msg, count: self.progress.emit(min(90, 10 + count // 20), msg),
+            stop=self._should_stop,
         )
         data = {
             "mode": self.mode,
@@ -118,6 +122,23 @@ class Worker(QThread):
         }
         self.progress.emit(100, f"残留扫描完成，共 {len(items)} 项")
         self.log.emit(f"残留扫描完成：{len(items)} 项")
+        self.result.emit(data)
+
+    def _do_patrol(self):
+        """开机巡检：扫描口径最宽，进度按百分比回传，供右下角小窗使用。"""
+        self.log.emit("开机巡检：扫描全部 360 目录与散落残留")
+        scanner = Scanner()
+        items = scanner.scan_patrol(
+            progress=lambda msg, pct: self.progress.emit(max(0, min(99, pct)), msg),
+            stop=self._should_stop,
+        )
+        data = {
+            "mode": self.mode,
+            "items": items,
+            "total_size": sum(i.size for i in items),
+        }
+        self.progress.emit(100, f"巡检完成，共 {len(items)} 项")
+        self.log.emit(f"开机巡检完成：{len(items)} 项")
         self.result.emit(data)
 
     def _do_clean(self):
