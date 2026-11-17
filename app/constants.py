@@ -4,7 +4,7 @@ import os
 
 APP_NAME = "残留清理卫士"
 APP_NAME_EN = "ResidualCleaner"
-APP_VERSION = "1.2.8.261115"
+APP_VERSION = "1.2.9.261117"
 APP_TAGLINE = "Windows 深度卸载与残留清理"
 
 LOG_DIR = os.path.join(
@@ -270,6 +270,47 @@ APPS = [
         "shortcuts": ["360浏览器极速版"],
         "assist": True,
     },
+    {
+        "key": "360wifi",
+        "name": "360 随身 WiFi",
+        "desc": "热点共享客户端、网卡驱动与托盘",
+        "processes": ["360wifi.exe", "360wifiassist.exe", "360ap.exe", "360wifitray.exe"],
+        "services": ["360wifi", "360ap"],
+        "dirs": [_p(PF86, "360", "360WiFi"), _p(PF, "360", "360WiFi"),
+                 _p(PROGRAMDATA, "360WiFi"), _p(APPDATA, "360WiFi")],
+        "regs": [r"HKLM\SOFTWARE\WOW6432Node\360WiFi", r"HKCU\Software\360WiFi"],
+        "tasks": ["360随身WiFi", "360WiFi"],
+        "shortcuts": ["360随身WiFi", "360随身WiFi"],
+        "assist": True,
+    },
+    {
+        "key": "360piaowang",
+        "name": "360 抢票王",
+        "desc": "抢票插件、更新服务与浏览器注入组件",
+        "processes": ["360piaowang.exe", "360piaowangupdate.exe"],
+        "services": [],
+        "dirs": [_p(PF86, "360", "360PiaoWang"), _p(APPDATA, "360PiaoWang"),
+                 _p(LOCALAPPDATA, "360PiaoWang")],
+        "regs": [r"HKLM\SOFTWARE\WOW6432Node\360PiaoWang",
+                 r"HKCU\Software\360PiaoWang"],
+        "tasks": ["360抢票王"],
+        "shortcuts": ["360抢票王"],
+        "assist": True,
+    },
+    {
+        "key": "360kidsafe",
+        "name": "360 儿童卫士",
+        "desc": "家长控制客户端、定位服务与后台守护",
+        "processes": ["360kidsafe.exe", "360kidsafetray.exe", "360kidsvc.exe"],
+        "services": ["360kidsafe", "360kid"],
+        "dirs": [_p(PF86, "360", "360KidSafe"), _p(PF, "360", "360KidSafe"),
+                 _p(PROGRAMDATA, "360KidSafe")],
+        "regs": [r"HKLM\SOFTWARE\WOW6432Node\360KidSafe",
+                 r"HKCU\Software\360KidSafe"],
+        "tasks": ["360儿童卫士"],
+        "shortcuts": ["360儿童卫士"],
+        "assist": True,
+    },
 ]
 
 # 360 自我保护相关驱动 / 服务关键词（强力删除前先尝试停止，避免文件被守护）
@@ -309,7 +350,8 @@ COMMON_REG_ROOTS = [
 REG_KEYWORDS = ["360safe", "360sd", "360se", "360chrome", "360zip", "360drvmgr",
                 "360softmgr", "360yunpan", "360game", "360mobile", "360ys",
                 "360wallpaper", "qhsafe", "zhudongfangyu", "奇虎", "360安全",
-                "360safelite", "360aibrowser", "360kuai", "360desktop", "360seplus"]
+                "360safelite", "360aibrowser", "360kuai", "360desktop", "360seplus",
+                "360wifi", "360piaowang", "360kidsafe"]
 
 UNINSTALL_KEYS = [
     r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
@@ -348,6 +390,8 @@ SCAN_ROOTS = [
     _p(PROGRAMDATA, "360safe"), _p(PROGRAMDATA, "360"),
     _p(APPDATA, "360safe"), _p(APPDATA, "360"),
     _p(LOCALAPPDATA, "360safe"), _p(LOCALAPPDATA, "360"),
+    _p(LOCALAPPDATA, "Temp"),
+    _p(WINDIR, "Temp"),
     DESKTOP,
     _p(USERPROFILE, "Downloads"),
     _p(USERPROFILE, "Documents"),
@@ -370,6 +414,26 @@ STARTUP_DIRS = [
 ]
 
 DRIVER_DIR = _p(WINDIR, "System32", "drivers")
+
+# 360 目录清扫：这些父目录下名字带 360 的子目录都会被纳入扫描
+SCAN_PARENTS = [
+    PF86, PF, PROGRAMDATA, APPDATA, LOCALAPPDATA, USERPROFILE,
+    DESKTOP,
+    _p(USERPROFILE, "Downloads"),
+    _p(USERPROFILE, "Documents"),
+    _p(USERPROFILE, "AppData", "LocalLow"),
+]
+
+# 磁盘根目录（只检查一级目录名，不做整盘遍历）
+SCAN_DRIVES = ["C:\\", "D:\\", "E:\\", "F:\\", "G:\\"]
+
+# 开机巡检：HKCU Run 值名与启动参数
+BOOT_PATROL_KEY = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run"
+BOOT_PATROL_VALUE = "ResidualCleanerPatrol"
+BOOT_PATROL_ARG = "--boot-scan"
+
+# 巡检单次最多列出多少项，避免刷出几千行让人没法看
+PATROL_MAX_ITEMS = 500
 
 # 卸载后需要复扫的注册表分支
 RESIDUAL_REG_PATHS = [
