@@ -670,6 +670,69 @@ QPushButton#HudClose {{
 QPushButton#HudClose:hover {{
     color: {c['danger']};
 }}
+
+QFrame#PatrolCard {{
+    background: {c['surface']};
+    border: 1px solid {c['border_strong']};
+    border-left: 3px solid {c['accent']};
+}}
+QLabel#PatrolTitle {{
+    font-size: 10.5pt;
+    font-weight: 700;
+    color: {c['title']};
+}}
+QLabel#PatrolChip {{
+    font-size: 8pt;
+    color: {c['accent']};
+    background: {c['accent_soft']};
+    border: 1px solid {c['accent_line']};
+    padding: 1px 6px;
+}}
+QLabel#PatrolPct {{
+    font-family: "{FONT_MONO}";
+    font-size: 9pt;
+    color: {c['accent']};
+}}
+QLabel#PatrolStatus {{
+    font-size: 10pt;
+    font-weight: 600;
+    color: {c['text']};
+}}
+QLabel#PatrolDetail {{
+    font-size: 8.5pt;
+    color: {c['text_muted']};
+}}
+QLabel#PatrolStat {{
+    font-size: 9pt;
+    color: {c['text_sub']};
+}}
+QLabel#PatrolStatDim {{
+    font-size: 8.5pt;
+    color: {c['text_muted']};
+}}
+QProgressBar#PatrolBar {{
+    background: {c['row_line']};
+    border: none;
+}}
+QProgressBar#PatrolBar::chunk {{
+    background: {c['accent']};
+}}
+QCheckBox#PatrolCheck {{
+    font-size: 8.5pt;
+    color: {c['text_sub']};
+    spacing: 6px;
+}}
+QCheckBox#PatrolCheck::indicator {{
+    width: 12px;
+    height: 12px;
+    border: 1px solid {c['border_strong']};
+    background: {c['surface_alt']};
+}}
+QCheckBox#PatrolCheck::indicator:checked {{
+    background: {c['accent']};
+    border-color: {c['accent']};
+    {CHECK_IMG}
+}}
 """
 
 
