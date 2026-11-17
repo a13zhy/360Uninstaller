@@ -38,6 +38,34 @@ def _kw_hit(text: str, keywords: list[str]) -> bool:
     return any(k.lower() in low for k in keywords)
 
 
+def merge_items(items: list[Item]) -> list[Item]:
+    """按 (类型, 路径) 去重，并丢掉被父目录整体覆盖的子目录项。
+
+    先排目录、再按路径长度排序，父目录一定排在子目录前面，
+    这样“删掉整个 360 目录”不会和它里面的子目录重复列出。
+    """
+    def norm(path: str) -> str:
+        return os.path.normcase(str(path).replace("/", "\\"))
+
+    ordered = sorted(items, key=lambda i: (0 if i.kind == "dir" else 1, len(i.target)))
+    seen_keys: set[tuple[str, str]] = set()
+    kept_dirs: list[str] = []
+    result: list[Item] = []
+
+    for item in ordered:
+        key = (item.kind, norm(item.target))
+        if key in seen_keys:
+            continue
+        if item.kind == "dir":
+            target = norm(item.target).rstrip("\\")
+            if any(target.startswith(d + "\\") for d in kept_dirs):
+                continue
+            kept_dirs.append(target)
+        seen_keys.add(key)
+        result.append(item)
+    return result
+
+
 class Scanner:
     """一次扫描会话内缓存进程/服务/任务列表，避免重复调用系统命令。"""
 
@@ -291,7 +319,8 @@ class Scanner:
     # ------------------------------------------------------------ 深度扫盘
     def deep_scan(self, keywords: list[str] | None = None,
                   limit: int = 300,
-                  progress=None) -> list[Item]:
+                  progress=None,
+                  stop=None) -> list[Item]:
         """受控范围的磁盘扫描：只进入常见安装/数据目录，排除系统关键目录。"""
         keywords = keywords or constants.FILE_KEYWORDS
         excludes = {os.path.normcase(p) for p in constants.SCAN_EXCLUDES if p}
@@ -314,6 +343,8 @@ class Scanner:
             if not base or not os.path.isdir(base):
                 continue
             for root, dirs, files in os.walk(base, topdown=True, onerror=lambda e: None):
+                if stop and stop():
+                    return items
                 # 剪枝：跳过系统目录
                 dirs[:] = [d for d in dirs
                            if os.path.normcase(os.path.join(root, d)) not in excludes
@@ -348,7 +379,7 @@ class Scanner:
         return items
 
     # ------------------------------------------------------------ 残留扫描
-    def scan_residual(self, deep: bool = True, progress=None) -> list[Item]:
+    def scan_residual(self, deep: bool = True, progress=None, stop=None) -> list[Item]:
         """卸载后残留扫描：进程/服务/目录/注册表/任务/快捷方式/深度扫盘。"""
         items: list[Item] = []
         procs = {n for n, _ in self.procs}
@@ -405,10 +436,107 @@ class Scanner:
 
         if deep:
             if progress:
+                progress("扫描各个 360 目录…", len(items))
+            items.extend(self.scan_360_folders(progress=progress, stop=stop))
+            if progress:
                 progress("深度扫描残留文件…", len(items))
-            items.extend(self.deep_scan(progress=progress))
+            items.extend(self.deep_scan(progress=progress, stop=stop))
 
+        return merge_items(items)
+
+    # ------------------------------------------------------------ 360 目录清扫
+    def folder_roots(self) -> list[str]:
+        """收集所有可能是 360 的目录：应用定义目录、公共目录、常见父目录下的 360 子目录、各盘一级 360 目录。"""
+        roots: list[str] = []
+        seen: set[str] = set()
+
+        def add(path: str) -> None:
+            if not path:
+                return
+            full = os.path.abspath(os.path.expandvars(path))
+            low = os.path.normcase(full)
+            if low in seen:
+                return
+            seen.add(low)
+            roots.append(full)
+
+        for app in constants.APPS:
+            for d in app["dirs"]:
+                add(d)
+        for d in constants.COMMON_DIRS:
+            add(d)
+
+        for parent in constants.SCAN_PARENTS:
+            parent = os.path.abspath(os.path.expandvars(parent)) if parent else ""
+            if not parent or not os.path.isdir(parent):
+                continue
+            try:
+                entries = os.listdir(parent)
+            except OSError:
+                continue
+            for name in entries:
+                full = os.path.join(parent, name)
+                if not os.path.isdir(full):
+                    continue
+                if _kw_hit(name, ["360", "qhsafe", "qihu"]):
+                    add(full)
+
+        for drive in constants.SCAN_DRIVES:
+            if not os.path.isdir(drive):
+                continue
+            try:
+                entries = os.listdir(drive)
+            except OSError:
+                continue
+            for name in entries:
+                full = os.path.join(drive, name)
+                if os.path.isdir(full) and _kw_hit(name, ["360", "qhsafe"]):
+                    add(full)
+
+        return [p for p in roots if os.path.isdir(p)]
+
+    def scan_360_folders(self, progress=None, stop=None,
+                         limit: int = constants.PATROL_MAX_ITEMS) -> list[Item]:
+        """把每个 360 目录整体当成一个删除项，删掉目录即清空里面的全部残留。
+
+        progress 回调签名是 (说明, 百分比)，与 scan_patrol 保持一致。
+        """
+        roots = self.folder_roots()
+        total = max(1, len(roots))
+        items: list[Item] = []
+        for idx, folder in enumerate(roots, start=1):
+            if stop and stop():
+                break
+            if len(items) >= limit:
+                break
+            if progress:
+                progress(f"扫描 360 目录 {idx}/{total}：{os.path.basename(folder)}",
+                         min(95, int(idx * 95 / total)))
+            size = cleanup.path_size(folder)
+            items.append(Item("dir", folder, folder, "", "360 目录", size))
         return items
+
+    def scan_patrol(self, progress=None, stop=None) -> list[Item]:
+        """开机巡检：常规残留 + 全部 360 目录 + 受控深度扫盘。
+
+        progress(说明, 百分比 0-100)，供右下角小窗直接画进度条。
+        """
+        items = self.scan_residual(deep=False, progress=None, stop=stop)
+        if progress:
+            progress("扫描各个 360 目录…", 30)
+
+        def _folder_progress(msg: str, pct: int) -> None:
+            if progress:
+                progress(msg, 30 + int(max(0, min(100, pct)) * 0.45))
+
+        items.extend(self.scan_360_folders(progress=_folder_progress, stop=stop))
+        if progress:
+            progress("深度扫描散落文件…", 80)
+        items.extend(self.deep_scan(progress=None, stop=stop))
+        result = merge_items(items)
+        if progress:
+            progress(f"扫描完成，发现 {len(result)} 项", 100)
+        return result
 
     def installed_summary(self) -> dict:
         total_dir = 0
