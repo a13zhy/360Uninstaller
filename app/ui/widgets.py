@@ -361,7 +361,7 @@ class PromoCard(QFrame):
         kicker = _label("360 全家桶 · 彻底清除", "PromoKicker")
         title = _label("360 一键全部移除", "PromoTitle")
         desc = _label("进程 / 服务 / 目录 / 注册表 / 启动项 / DLL 与驱动 / 快捷方式；"
-                      "无权访问自动接管所有权并强力删除", "PromoDesc")
+                      "无权访问先接管所有权强力删除，清完可登记开机巡检复查", "PromoDesc")
         desc.setWordWrap(True)
         text_box.addWidget(kicker)
         text_box.addWidget(title)
