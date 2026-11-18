@@ -1,474 +1,392 @@
-"""残余项目检查小窗：扫描 → 勾选 → 删除 → 结果"""
+"""残余项目小窗：扫描 → 勾选 → 删除 → 结果与解决方案
 
-from PySide6.QtCore import Qt, QSize, Signal
-from PySide6.QtWidgets import (QCheckBox, QDialog, QFrame, QHBoxLayout,
-                               QLabel, QListWidget, QListWidgetItem,
+窗口缩到 640×440，行高 40，一条一行；失败项在底部给出可照做的下一步。
+"""
+
+from PySide6.QtCore import QSize, Qt, QTimer
+from PySide6.QtGui import QFontMetrics, QMovie
+from PySide6.QtWidgets import (QCheckBox, QDialog, QFrame, QHBoxLayout, QLabel,
                                QMessageBox, QProgressBar, QPushButton,
-                               QVBoxLayout, QWidget)
+                               QScrollArea, QSizePolicy, QVBoxLayout, QWidget)
 
-from .. import cleanup, icon_provider
+from .. import cleanup, solutions
 from ..scanner import Item
 from ..worker import Worker
 from . import theme
-from .widgets import ScanHud
+from .widgets import SolutionBox
+
+KIND_TONE = {
+    "process": ("进程", "#5B6470"),
+    "service": ("服务", "#2B7CF6"),
+    "dir": ("目录", "#C26A14"),
+    "file": ("文件", "#5B6470"),
+    "dll": ("DLL", "#8B5CF6"),
+    "registry": ("注册表", "#D54941"),
+    "task": ("任务", "#2BA471"),
+    "startup": ("启动项", "#2BA471"),
+    "shortcut": ("快捷方式", "#8B939E"),
+}
+
+TECH_FOR_KIND = {
+    "process": "taskkill /T /F",
+    "service": "sc stop / delete",
+    "task": "schtasks /delete",
+    "startup": "启动项直删",
+    "shortcut": "快捷方式直删",
+    "dir": "接管所有权+删树",
+    "file": "接管所有权+删",
+    "dll": "RestartManager",
+    "registry": "ACL+RegDelete",
+}
 
 
-def kind_color(kind: str) -> str:
-    """类型标签颜色取自当前主题，浅色/深色都保证对比度。"""
-    c = theme.COLORS
-    return {
-        "process": c["text_sub"],
-        "service": c["teal"],
-        "dir": c["warn"],
-        "file": c["accent"],
-        "dll": c["accent"],
-        "registry": c["danger"],
-        "task": c["teal"],
-        "startup": c["success"],
-        "shortcut": c["text_muted"],
-    }.get(kind, c["text_muted"])
-
-
-class ResidualRow(QWidget):
-    toggled = Signal()
+class _Row(QFrame):
 
     def __init__(self, item: Item, parent=None):
         super().__init__(parent)
-        lay = QHBoxLayout(self)
-        lay.setContentsMargins(6, 4, 6, 4)
-        lay.setSpacing(8)
+        self.item = item
+        self.setObjectName("AppTile")
+        self.setFixedHeight(40)
+        self.setStyleSheet(
+            f"QFrame#AppTile {{ background: #FFFFFF; border: none;"
+            f" border-bottom: 1px solid {theme.COLORS['line']}; border-radius: 0; }}")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        self.cb = QCheckBox()
-        self.cb.setChecked(True)
-        self.cb.toggled.connect(lambda _v: self.toggled.emit())
-        lay.addWidget(self.cb)
+        row = QHBoxLayout(self)
+        row.setContentsMargins(10, 2, 10, 2)
+        row.setSpacing(8)
 
-        kind = QLabel(item.kind_label)
-        kind.setAlignment(Qt.AlignCenter)
-        kind.setFixedWidth(56)
-        color = kind_color(item.kind)
-        kind.setStyleSheet(
-            f"color:{color}; background:transparent;"
-            f"border:1px solid {color}; font-size:8pt; padding:1px 4px;"
-        )
-        lay.addWidget(kind)
+        self.box = QCheckBox(self)
+        self.box.setChecked(True)
+        row.addWidget(self.box)
 
-        text = QLabel(item.label)
-        text.setToolTip(item.target)
-        text.setStyleSheet(f"font-size:9pt; color:{theme.COLORS['text']};")
-        text.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        lay.addWidget(text, 1)
+        label, color = KIND_TONE.get(item.kind, (item.kind, "#5B6470"))
+        tag = QLabel(label)
+        tag.setFixedWidth(48)
+        tag.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        tag.setStyleSheet(
+            f"background:#FFFFFF; color:{color}; border:1px solid {theme.COLORS['line']};"
+            f" border-radius:2px; font-size:7pt; padding:1px 0px;")
+        row.addWidget(tag)
+
+        name = QLabel(item.label or item.target)
+        name.setObjectName("TileName")
+        name.setFixedWidth(132)
+        name.setToolTip(item.label or item.target)
+        row.addWidget(name)
+
+        path = QLabel()
+        path.setObjectName("Mono")
+        path.setToolTip(item.target)
+        metrics = QFontMetrics(path.font())
+        path.setText(metrics.elidedText(item.target, Qt.TextElideMode.ElideMiddle, 236))
+        path.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        row.addWidget(path, 1)
 
         size = QLabel(item.size_text)
-        size.setFixedWidth(72)
-        size.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        size.setStyleSheet(f"color:{theme.COLORS['text_muted']}; font-size:8.5pt;")
-        lay.addWidget(size)
+        size.setObjectName("TileSize")
+        size.setFixedWidth(54)
+        size.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        row.addWidget(size)
+
+        tech = QLabel(TECH_FOR_KIND.get(item.kind, "直删"))
+        tech.setObjectName("SectionHint")
+        tech.setFixedWidth(100)
+        row.addWidget(tech)
 
     def is_checked(self) -> bool:
-        return self.cb.isChecked()
-
-    def set_checked(self, v: bool):
-        self.cb.setChecked(v)
+        return self.box.isChecked()
 
 
 class ResidualDialog(QDialog):
-    """卸载完成后弹出，检查残余项目并支持勾选删除。"""
-
-    finished_cleanup = Signal(dict)
-
-    def __init__(self, parent=None, deep: bool = True, title: str = "残余项目检查",
-                 items: list[Item] | None = None):
+    def __init__(self, parent=None, deep: bool = True,
+                 title: str = "残余项目检查", auto_start: bool = True):
         super().__init__(parent)
         self.setObjectName("ResidualDialog")
-        self.setWindowTitle(title)
-        self.setWindowIcon(icon_provider.app_icon())
-        self.setMinimumSize(780, 600)
-        self.resize(820, 650)
-        self.setModal(True)
-
-        self.items: list[Item] = []
-        self.rows: list[ResidualRow] = []
-        self.worker: Worker | None = None
         self.deep = deep
-        self.deleted = False
-        self.clean_result: dict = {}
+        self.title_text = title
+        self.auto_start = auto_start
+        self.items: list[Item] = []
+        self.rows: list[_Row] = []
+        self.worker: Worker | None = None
+        self.cleanup_data: dict | None = None
+        self._scanning = False
         self._deleting = False
-        self._emitted = False
-        self._count_word = "项残留"
-        self._preloaded = list(items or [])
-        self.hud = None
 
+        self.setWindowTitle(title)
+        self.setModal(True)
+        self.resize(640, 440)
+        self.setMinimumSize(600, 400)
         self._build()
-        if self._preloaded:
-            self.scan_box.setVisible(False)
-            self._on_scan_done({"items": self._preloaded,
-                                "total_size": sum(i.size for i in self._preloaded)})
 
-    # ------------------------------------------------------------------ UI
+        if auto_start:
+            QTimer.singleShot(120, self.start_scan)
+
+    # ------------------------------------------------------------ 构建
     def _build(self):
-        root = QVBoxLayout(self)
-        root.setContentsMargins(22, 18, 22, 18)
-        root.setSpacing(10)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(14, 12, 14, 12)
+        lay.setSpacing(8)
 
         head = QHBoxLayout()
-        head.setSpacing(12)
-        icon = QLabel()
-        icon.setPixmap(icon_provider.app_pixmap(44))
-        icon.setFixedSize(44, 44)
-        head.addWidget(icon)
+        head.setSpacing(8)
+        self.spinner = QLabel()
+        self.spinner.setFixedSize(22, 22)
+        self.movie = QMovie(theme.asset_path("scan_ring.gif"))
+        if self.movie.isValid():
+            self.movie.setScaledSize(QSize(22, 22))
+            self.spinner.setMovie(self.movie)
+        self.spinner.setVisible(False)
+        head.addWidget(self.spinner)
+
         titles = QVBoxLayout()
-        titles.setSpacing(0)
-        self.title = QLabel("正在检查残余项目…")
-        self.title.setObjectName("DialogTitle")
-        self.sub = QLabel("扫描进程、服务、目录、注册表、计划任务与磁盘残留文件")
-        self.sub.setObjectName("DialogSub")
-        titles.addWidget(self.title)
-        titles.addWidget(self.sub)
+        titles.setSpacing(1)
+        self.lb_title = QLabel(self.title_text)
+        self.lb_title.setObjectName("DialogTitle")
+        self.lb_sub = QLabel("扫盘 + 注册表复查" if self.deep else "注册表与目录复查")
+        self.lb_sub.setObjectName("DialogSub")
+        titles.addWidget(self.lb_title)
+        titles.addWidget(self.lb_sub)
         head.addLayout(titles, 1)
-        root.addLayout(head)
 
-        # 扫描进度区
-        self.scan_box = QFrame()
-        self.scan_box.setObjectName("DialogStat")
-        sb = QVBoxLayout(self.scan_box)
-        sb.setContentsMargins(14, 12, 14, 12)
-        sb.setSpacing(8)
-        self.scan_text = QLabel("准备扫描…")
-        self.scan_text.setStyleSheet("font-size:9pt;")
-        sb.addWidget(self.scan_text)
-        self.scan_bar = QProgressBar()
-        self.scan_bar.setRange(0, 100)
-        self.scan_bar.setValue(0)
-        self.scan_bar.setFixedHeight(8)
-        self.scan_bar.setTextVisible(False)
-        sb.addWidget(self.scan_bar)
-        root.addWidget(self.scan_box)
+        self.btn_close_top = QPushButton("关闭")
+        self.btn_close_top.setObjectName("Link")
+        head.addWidget(self.btn_close_top)
+        lay.addLayout(head)
 
-        # 统计条
-        self.stat_box = QFrame()
-        self.stat_box.setObjectName("DialogStat")
-        self.stat_box.setVisible(False)
-        st = QHBoxLayout(self.stat_box)
-        st.setContentsMargins(14, 10, 14, 10)
-        st.setSpacing(24)
-        self.lb_count = QLabel("0 项残留")
-        self.lb_count.setStyleSheet("font-size:11pt; font-weight:700;")
-        self.lb_size = QLabel("可释放 0 B")
-        self.lb_size.setStyleSheet(f"font-size:9pt; color:{theme.COLORS['text_sub']};")
-        self.lb_hint = QLabel("勾选后点击“删除选中项”")
-        self.lb_hint.setStyleSheet(f"font-size:8.5pt; color:{theme.COLORS['text_muted']};")
-        st.addWidget(self.lb_count)
-        st.addWidget(self.lb_size)
-        st.addStretch(1)
-        st.addWidget(self.lb_hint)
-        root.addWidget(self.stat_box)
+        self.bar = QProgressBar()
+        self.bar.setRange(0, 100)
+        self.bar.setTextVisible(False)
+        self.bar.setFixedHeight(4)
+        self.bar.setValue(0)
+        lay.addWidget(self.bar)
 
-        # 列表
-        self.list = QListWidget()
-        self.list.setObjectName("ResidualList")
-        self.list.setSelectionMode(QListWidget.NoSelection)
-        self.list.setFocusPolicy(Qt.NoFocus)
-        self.list.setVisible(False)
-        root.addWidget(self.list, 1)
+        self.lb_status = QLabel("准备扫描…")
+        self.lb_status.setObjectName("DialogSub")
+        lay.addWidget(self.lb_status)
 
-        # 空状态
-        self.empty = QLabel("未发现残留项目，系统已清理干净")
-        self.empty.setAlignment(Qt.AlignCenter)
-        self.empty.setStyleSheet(f"color:{theme.COLORS['text_sub']}; font-size:10pt;")
-        self.empty.setVisible(False)
-        root.addWidget(self.empty)
+        card = QFrame()
+        card.setObjectName("Card")
+        cl = QVBoxLayout(card)
+        cl.setContentsMargins(1, 1, 1, 1)
+        cl.setSpacing(0)
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.host = QWidget()
+        self.list_box = QVBoxLayout(self.host)
+        self.list_box.setContentsMargins(0, 0, 0, 0)
+        self.list_box.setSpacing(0)
+        self.list_box.addStretch(1)
+        scroll.setWidget(self.host)
+        cl.addWidget(scroll)
+        lay.addWidget(card, 1)
 
-        # 底部操作
-        btns = QHBoxLayout()
-        btns.setSpacing(8)
+        self.solbox = SolutionBox()
+        lay.addWidget(self.solbox)
+
+        foot = QHBoxLayout()
+        foot.setSpacing(8)
+        self.lb_stat = QLabel("尚未扫描")
+        self.lb_stat.setObjectName("StatChip")
+        foot.addWidget(self.lb_stat)
+        foot.addStretch(1)
         self.btn_all = QPushButton("全选")
-        self.btn_all.setObjectName("Ghost")
+        self.btn_all.setObjectName("Link")
+        self.btn_clean = QPushButton("清理选中（0）")
+        self.btn_clean.setObjectName("Primary")
+        self.btn_all.setEnabled(False)
+        self.btn_clean.setEnabled(False)
+        foot.addWidget(self.btn_all)
+        foot.addWidget(self.btn_clean)
+        lay.addLayout(foot)
+
+        self.btn_close_top.clicked.connect(self._close_dialog)
         self.btn_all.clicked.connect(self._toggle_all)
-        self.btn_scan_again = QPushButton("重新扫描")
-        self.btn_scan_again.setObjectName("Ghost")
-        self.btn_scan_again.clicked.connect(lambda: self.start_scan())
-        self.btn_close = QPushButton("跳过，稍后处理")
-        self.btn_close.clicked.connect(self._close_dialog)
-        self.btn_delete = QPushButton("删除选中项")
-        self.btn_delete.setObjectName("Primary")
-        self.btn_delete.clicked.connect(self._delete_selected)
+        self.btn_clean.clicked.connect(self._delete_selected)
 
-        btns.addWidget(self.btn_all)
-        btns.addWidget(self.btn_scan_again)
-        btns.addStretch(1)
-        btns.addWidget(self.btn_close)
-        btns.addWidget(self.btn_delete)
-        root.addLayout(btns)
-
-        self._set_actions(False)
-
-    def _set_actions(self, ready: bool, deleting: bool = False):
-        self.btn_all.setEnabled(ready and not deleting)
-        self.btn_scan_again.setEnabled(not deleting)
-        self.btn_delete.setEnabled(ready and not deleting and self._selected_count() > 0)
-        self.btn_close.setEnabled(not deleting)
-
-    def _selected_count(self) -> int:
-        return sum(1 for r in self.rows if r.is_checked())
-
-    def _update_selection_stats(self):
-        if not self.items:
-            return
-        n = self._selected_count()
-        size = sum(it.size for it, r in zip(self.items, self.rows) if r.is_checked())
-        self.lb_count.setText(f"{len(self.items)} {self._count_word} · 已选 {n}")
-        self.lb_size.setText(f"预计释放 {cleanup.human_size(size)}")
-        self.btn_delete.setEnabled(n > 0 and not self._deleting)
-        self.btn_all.setText("全选" if n < len(self.rows) else "全不选")
-        if n == 0:
-            self.lb_hint.setText("还没勾选任何项目，点“全选”可以一次勾满")
-        else:
-            self.lb_hint.setText("点击“删除选中项”，逐项执行并回报每一项结果")
-
-    def _emit_cleanup(self):
-        """同一窗口只上报一次结果，避免关闭时重复通知主界面。"""
-        if self._emitted or not self.clean_result:
-            return
-        self._emitted = True
-        self.finished_cleanup.emit(self.clean_result)
-
-    # ------------------------------------------------------------------ 扫描
+    # ------------------------------------------------------------ 扫描
     def start_scan(self):
-        if self.worker and self.worker.isRunning():
+        if self._scanning:
             return
-        self.items.clear()
-        self.rows.clear()
-        self.list.clear()
-        self.list.setVisible(False)
-        self.list.setEnabled(True)
-        self.empty.setVisible(False)
-        self.stat_box.setVisible(False)
-        # 深度扫描把进度放到右下角小窗，本窗口只留一句状态，避免两个进度条打架
-        self.scan_box.setVisible(not self.deep)
-        self.scan_bar.setValue(0)
-        self.scan_text.setText("正在扫描残余项目…")
-        self.title.setText("正在检查残余项目…")
-        self.sub.setText("扫描进程、服务、目录、注册表、启动项、DLL 与磁盘残留文件")
-        self._deleting = False
-        self._count_word = "项残留"
-        self.btn_close.setText("跳过，稍后处理")
-        self._set_actions(False)
-        self.btn_delete.setText("删除选中项")
-        # 重新扫描后允许再次上报结果，避免上一轮“已上报”标记把新结果吞掉
-        self._emitted = False
-        self.clean_result = {}
+        if not self.auto_start:
+            self.auto_start = True
+            return
+        self._scanning = True
+        self.solbox.clear()
+        self._set_rows([])
+        self.lb_status.setText("正在扫描…" if self.deep else "正在复查注册表与目录…")
+        self.spinner.setVisible(True)
+        if self.movie.isValid():
+            self.movie.start()
+        self.bar.setValue(0)
+        self.btn_all.setEnabled(False)
+        self.btn_clean.setEnabled(False)
 
-        if self.deep:
-            if self.hud is None:
-                self.hud = ScanHud("深度扫描 · 残余检查", self)
-                self.hud.cancel_clicked.connect(self._cancel_scan)
-            self.hud.update_state("正在准备扫描…", 0)
-            self.hud.show_at_corner()
-
-        self.worker = Worker(Worker.MODE_RESIDUAL, {"deep": self.deep}, parent=self)
-        self.worker.log.connect(lambda m: self.scan_text.setText(m))
+        self.worker = Worker(Worker.MODE_RESIDUAL, {"deep": bool(self.deep)}, self)
         self.worker.progress.connect(self._on_progress)
         self.worker.result.connect(self._on_scan_done)
         self.worker.start()
 
-    def _cancel_scan(self):
-        if self.worker and self.worker.isRunning():
-            self.worker.request_stop()
-            if self.hud:
-                self.hud.update_state("正在停止…", self.hud.bar.value())
-
-    def _populate_demo(self):
-        """预览模式：填充示例残留，展示结果态。"""
-        demo = [
-            Item("dir", r"C:\Program Files (x86)\360\360Safe", r"C:\Program Files (x86)\360\360Safe",
-                 "", "残留目录", 268_435_456),
-            Item("dir", r"C:\ProgramData\360safe", r"C:\ProgramData\360safe",
-                 "", "残留目录", 41_943_040),
-            Item("dir", r"C:\Users\Administrator\AppData\Roaming\360safe",
-                 r"…\AppData\Roaming\360safe", "", "残留目录", 12_582_912),
-            Item("file", r"C:\Users\Administrator\Desktop\360安全卫士.lnk",
-                 "360安全卫士.lnk", "", "残留文件", 2048),
-            Item("file", r"C:\Users\Administrator\Downloads\360safe_setup.exe",
-                 "360safe_setup.exe", "", "深度扫描", 58_720_256),
-            Item("service", "360rp", "360rp", "", "360 服务"),
-            Item("service", "360SoftMgrSvc", "360SoftMgrSvc", "", "360 服务"),
-            Item("task", "360安全卫士-每日体检", "360安全卫士-每日体检", "", "残留任务"),
-            Item("registry", r"HKLM\SOFTWARE\WOW6432Node\360Safe",
-                 r"HKLM\SOFTWARE\WOW6432Node\360Safe", "", "残留注册表"),
-            Item("registry", r"HKCU\Software\360Safe",
-                 r"HKCU\Software\360Safe", "", "残留注册表"),
-            Item("registry", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run::360Safetray",
-                 "360Safetray", "", "开机启动项", extra={"value_name": "360Safetray"}),
-            Item("dll", r"C:\Program Files (x86)\360\360Safe\360Base.dll",
-                 "360Base.dll", "", "残留 DLL", 3_145_728),
-            Item("dll", r"C:\Windows\System32\360FsFlt.sys",
-                 "360FsFlt.sys", "", "驱动残留", 286_720),
-            Item("startup", r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs\Startup\360Safe.lnk",
-                 "360Safe.lnk", "", "开机启动项", 1024),
-            Item("shortcut", r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs\360安全卫士.lnk",
-                 "360安全卫士.lnk", "", "残留快捷方式"),
-        ]
-        self.scan_box.setVisible(False)
-        self._on_scan_done({
-            "items": demo,
-            "total_size": sum(i.size for i in demo),
-        })
-        self.title.setText("残余项目检查结果")
-        self.sub.setText("勾选需要删除的项目，逐项执行删除并回报结果")
-
     def _on_progress(self, pct: int, text: str):
-        self.scan_bar.setValue(pct)
-        if text:
-            self.scan_text.setText(text)
-        if self.hud is not None and self.hud.isVisible():
-            self.hud.update_state(text or "扫描中…", pct)
+        self.bar.setValue(max(0, min(100, int(pct))))
+        self.lb_status.setText(text)
 
     def _on_scan_done(self, data: dict):
-        self.items = data.get("items", [])
-        self.scan_box.setVisible(False)
-        if self.hud is not None:
-            self.hud.hide()
-        self.title.setText("残余项目检查结果")
-        self.sub.setText("勾选需要删除的项目，逐项执行删除并回报结果")
+        self._scanning = False
+        self.spinner.setVisible(False)
+        if self.movie.isValid():
+            self.movie.stop()
+        items = data.get("items", [])
+        self.items = list(items)
+        self._set_rows(self.items)
+        self.bar.setValue(100)
+        total = data.get("total_size")
+        if total is None:
+            total = sum(getattr(i, "size", 0) for i in self.items)
+        self.lb_status.setText(
+            f"扫描完成：{len(self.items)} 项 · {cleanup.human_size(total)}")
+        self._update_stats()
 
-        if not self.items:
-            self.empty.setVisible(True)
-            self.btn_close.setText("完成")
-            self._set_actions(False)
+    def _set_rows(self, items: list):
+        while self.list_box.count():
+            entry = self.list_box.takeAt(0)
+            if entry.widget():
+                entry.widget().setParent(None)
+                entry.widget().deleteLater()
+        self.rows = []
+        if not items:
+            hint = QLabel("没有发现残余项目，这块已经干净了。")
+            hint.setObjectName("Empty")
+            hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            hint.setMinimumHeight(120)
+            self.list_box.addWidget(hint)
+            self.list_box.addStretch(1)
             return
-
-        self.stat_box.setVisible(True)
-        total_size = data.get("total_size", 0)
-        self.lb_count.setText(f"{len(self.items)} 项残留")
-        self.lb_size.setText(f"可释放 {cleanup.human_size(total_size)}")
-
-        self.list.setVisible(True)
-        self.list.setEnabled(True)
-        for item in self.items:
-            li = QListWidgetItem(self.list)
-            li.setSizeHint(QSize(0, 34))
-            row = ResidualRow(item)
-            row.toggled.connect(self._update_selection_stats)
+        for item in items:
+            row = _Row(item)
+            row.box.toggled.connect(lambda _c: self._update_stats())
+            self.list_box.addWidget(row)
             self.rows.append(row)
-            self.list.setItemWidget(li, row)
+        self.list_box.addStretch(1)
+        self._update_stats()
 
-        self._count_word = "项残留"
-        self._set_actions(True)
-        self._update_selection_stats()
+    def _update_stats(self):
+        picked = [r for r in self.rows if r.is_checked()]
+        total = sum(r.item.size for r in picked)
+        self.btn_clean.setText(f"清理选中（{len(picked)}）")
+        self.btn_clean.setEnabled(bool(picked) and not self._scanning and not self._deleting)
+        self.btn_all.setEnabled(bool(self.rows) and not self._deleting)
+        self.lb_stat.setText(
+            f"{len(self.rows)} 项 · 选中 {len(picked)} · {cleanup.human_size(total)}")
 
     def _toggle_all(self):
-        target = not all(r.is_checked() for r in self.rows)
-        for r in self.rows:
-            r.set_checked(target)
-        self.btn_all.setText("全不选" if target else "全选")
-        self._update_selection_stats()
+        all_on = all(r.is_checked() for r in self.rows) if self.rows else False
+        for row in self.rows:
+            row.box.setChecked(not all_on)
+        self._update_stats()
 
-    # ------------------------------------------------------------------ 删除
-    def _selected(self) -> list[Item]:
-        return [it for it, row in zip(self.items, self.rows) if row.is_checked()]
-
+    # ------------------------------------------------------------ 删除
     def _delete_selected(self):
-        selected = self._selected()
-        if not selected:
-            self.lb_hint.setText("请先勾选要删除的项目")
+        picked = [r for r in self.rows if r.is_checked()]
+        if not picked:
             return
-        self._deleting = True
-        self.list.setEnabled(False)
-        self.btn_delete.setText("删除中…")
-        self._set_actions(True, deleting=True)
-        self.scan_box.setVisible(True)
-        self.scan_bar.setValue(0)
-        self.scan_text.setText(f"正在删除 {len(selected)} 个项目…")
+        ret = QMessageBox.question(
+            self, "确认清理",
+            f"将删除 {len(picked)} 项，其中目录会整棵删除。\n"
+            "删不掉的会自动用接管所有权与重启删除兜底。继续？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if ret != QMessageBox.StandardButton.Yes:
+            return
 
-        self.worker = Worker(Worker.MODE_CLEAN, {"items": selected}, parent=self)
-        self.worker.log.connect(lambda m: self.scan_text.setText("删除进度 · " + m[:100]))
+        self._deleting = True
+        self.btn_clean.setEnabled(False)
+        self.btn_all.setEnabled(False)
+        self.bar.setValue(0)
+        self.lb_status.setText("正在清理…")
+        self.spinner.setVisible(True)
+        if self.movie.isValid():
+            self.movie.start()
+
+        self.worker = Worker(Worker.MODE_CLEAN,
+                             {"items": [r.item for r in picked]}, self)
         self.worker.progress.connect(self._on_progress)
+        self.worker.log.connect(self._on_del_log)
         self.worker.result.connect(self._on_clean_done)
         self.worker.start()
 
+    def _on_del_log(self, message: str):
+        if len(message) > 90:
+            message = message[:87] + "…"
+        self.lb_status.setText(message)
+
     def _on_clean_done(self, data: dict):
-        self.clean_result = data
-        self.deleted = True
-        ok = data.get("ok", 0)
-        fail = data.get("fail", 0)
-        pending = data.get("pending", 0)
-        freed = data.get("freed_text", "0 B")
-        self.scan_box.setVisible(False)
-        self.title.setText("残余清理完成")
-        sub = f"成功 {ok} 项 · 失败 {fail} 项 · 释放 {freed}"
-        if pending:
-            sub += f" · {pending} 项待重启后删除"
-        self.sub.setText(sub)
-        self.lb_hint.setText(
-            f"{pending} 项已登记重启后删除，重启一次即完成"
-            if pending else "建议重启电脑以完成最后的文件释放")
-
-        # 只保留失败项供重试
-        failed_targets = {r["target"] for r in data.get("rows", []) if not r["ok"]}
-        remaining = [it for it in self.items if it.target in failed_targets]
-        self.list.clear()
-        self.rows.clear()
-        self.items = remaining
         self._deleting = False
-        self.list.setEnabled(True)
-        for item in remaining:
-            li = QListWidgetItem(self.list)
-            li.setSizeHint(QSize(0, 34))
-            row = ResidualRow(item)
-            row.toggled.connect(self._update_selection_stats)
-            self.rows.append(row)
-            self.list.setItemWidget(li, row)
+        self.cleanup_data = data
+        self.spinner.setVisible(False)
+        if self.movie.isValid():
+            self.movie.stop()
+        ok = int(data.get("ok", 0))
+        fail = int(data.get("fail", 0))
+        pending = int(data.get("pending", 0))
+        self.bar.setValue(100)
+        self.lb_status.setText(
+            f"清理完成：成功 {ok} · 失败 {fail} · 登记重启删除 {pending}")
+        sols = solutions.collect(data.get("rows", []))
+        self.solbox.set_solutions([s.to_dict() for s in sols])
 
-        self.stat_box.setVisible(bool(remaining))
-        if remaining:
-            self._count_word = "项未清理"
-            self.list.setVisible(True)
-            self.btn_delete.setText("重试删除选中项")
-            self.btn_close.setText("完成")
-            self._set_actions(True)
-            self._update_selection_stats()
+        self._set_rows([])
+        self.items = []
+        self.btn_clean.setText("清理选中（0）")
+        self.btn_clean.setEnabled(False)
+        self.btn_all.setEnabled(False)
+        self.lb_stat.setText(f"成功 {ok} · 失败 {fail} · 重启删除 {pending}")
+        self.btn_close_top.setText("完成")
+        if fail == 0:
+            self.lb_title.setText("清理完成")
         else:
-            self.list.setVisible(False)
-            self.empty.setVisible(True)
-            self.empty.setText(
-                f"清理完成，释放 {freed}。"
-                + (f"另有 {pending} 项安排在重启后删除，重启一次即可清空。" if pending
-                   else "建议重启电脑。"))
-            self.btn_close.setText("完成")
-            self._set_actions(False)
-
-        self._emit_cleanup()
+            self.lb_title.setText("部分项目未清理")
 
     def _close_dialog(self):
-        if self.worker and self.worker.isRunning():
+        if self._scanning or self._deleting:
             if not self._confirm_stop():
                 return
-            self.worker.request_stop()
-            self.worker.wait(3000)
-        if self.hud is not None:
-            self.hud.hide()
-        self._emit_cleanup()
         self.accept()
 
     def _confirm_stop(self) -> bool:
         ret = QMessageBox.question(
-            self, "操作仍在进行",
-            "扫描或删除还没有结束，现在关闭会中止剩余步骤，"
-            "可能留下删了一半的项目。\n\n确定要关闭吗？",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
-        return ret == QMessageBox.Yes
+            self, "任务进行中", "扫描或清理还没结束，现在关闭会中断。确定关闭？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if ret != QMessageBox.StandardButton.Yes:
+            return False
+        if self.worker and self.worker.isRunning():
+            self.worker.request_stop()
+            self.worker.wait(1500)
+        return True
 
     def closeEvent(self, event):
-        if self.worker and self.worker.isRunning():
-            if not self._confirm_stop():
-                event.ignore()
-                return
-            self.worker.request_stop()
-            self.worker.wait(3000)
-        if self.hud is not None:
-            self.hud.hide()
-        self._emit_cleanup()
+        if self.worker and self.worker.isRunning() and not self._confirm_stop():
+            event.ignore()
+            return
         super().closeEvent(event)
+
+    # ------------------------------------------------------------ 演示
+    def _populate_demo(self):
+        demo = [
+            Item("dir", r"C:\Program Files (x86)\360\360Safe", "360Safe 安装目录", size=162_334_000),
+            Item("registry", r"HKLM\SOFTWARE\WOW6432Node\360Safe", "360Safe 主键", size=0),
+            Item("dll", r"C:\Windows\System32\drivers\360FsFlt.sys", "360FsFlt 驱动", size=1_204_000),
+            Item("task", r"360安全卫士自动升级", "计划任务", size=0),
+            Item("startup", r"C:\ProgramData\...\Startup\360Safe.lnk", "开机启动项", size=1_800),
+            Item("dir", r"C:\Users\Administrator\AppData\Local\360Chrome\Cache", "浏览器缓存目录",
+                 size=418_770_000),
+        ]
+        self._scanning = False
+        self.items = demo
+        self._set_rows(demo)
+        self.bar.setValue(100)
+        self.lb_status.setText("演示状态：扫描完成，6 项 · 592.3 MB")
+        self.lb_title.setText(self.title_text)
