@@ -11,7 +11,6 @@ from PySide6.QtWidgets import (QCheckBox, QFrame, QHBoxLayout, QLabel,
 from .. import constants, icon_provider
 from . import theme
 
-# 统一的图标视觉：1.6px 描边，圆头线帽，无填充色块
 GLYPH_NAMES = {
     "clean", "bundle", "info", "radar", "shield", "update", "close", "min",
     "retry", "ai", "bird", "check", "clock", "lock",
@@ -396,7 +395,7 @@ class TechPanel(QFrame):
         self.stage.setText(text)
 
     def set_progress(self, pct: int):
-        self.bar.setValue(max(0, min(100, int(pct)))
+        self.bar.setValue(max(0, min(100, int(pct))))
 
     def set_tech(self, text: str):
         self.tech.setText(text)
