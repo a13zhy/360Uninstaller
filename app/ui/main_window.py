@@ -1,1029 +1,981 @@
-"""主窗口：左侧主界面 + 右侧控制台"""
+"""主窗口：左侧导航 / 中间清单 / 右侧技术面板
+
+这一版按安全软件的信息密度重排：窗口缩到 940×608，清单只列本机真实装了的，
+卸载过程把“正在用什么技术”摆在右边，失败项直接给解决方案。
+"""
 
 import os
 import time
 
-from PySide6.QtCore import QSettings, Qt, QTimer
+from PySide6.QtCore import Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QCloseEvent
-from PySide6.QtWidgets import (QApplication, QFrame, QGridLayout, QHBoxLayout,
-                               QLabel, QMainWindow, QMessageBox, QPushButton,
-                               QScrollArea, QSizePolicy, QSystemTrayIcon,
+from PySide6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QFrame,
+                               QHBoxLayout, QLabel, QMainWindow, QMessageBox,
+                               QPushButton, QScrollArea, QSizeGrip,
                                QVBoxLayout, QWidget)
 
-from .. import (bootguard, cleanup, elevation, icon_provider, system_actions,
-                updater)
-from ..constants import (APP_NAME, APP_NAME_EN, APP_TAGLINE, APP_VERSION,
-                         APPS, ENV_NO_DISCLAIMER, ENV_PREVIEW, LOG_DIR,
-                         LOG_FILE, env_flag)
-from ..scanner import Item
+from .. import (bootguard, cleanup, elevation, icon_provider, solutions,
+                system_actions, updater)
+from ..constants import (APP_NAME, APP_VERSION, APPS, BUNDLE_TECH, ENV_PREVIEW,
+                         LOG_DIR, LOG_FILE, MODE_BUNDLE, MODE_INFO, MODE_SINGLE,
+                         SUPPORT_HINT, env_flag)
+from ..detector import Detected, Detector
 from ..tray import TrayController
 from ..worker import Worker
 from .patrol_window import PatrolWindow
 from .residual_dialog import ResidualDialog
 from .update_dialog import UpdateDialog
-from .widgets import (AppRow, BottomFade, ConsoleWidget, PromoCard, ScanHud,
-                      StatCard, table_header)
+from .widgets import (AdSlot, AppTile, EmptyState, ModeCard, NavItem,
+                      SolutionBox, TechPanel, glyph_icon)
+
+WIN_W, WIN_H = 940, 608
+
+
+class _DragBar(QFrame):
+    """无边框窗口的拖拽条：交给系统处理移动，缩放靠右下角 SizeGrip。"""
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            handle = self.window().windowHandle()
+            if handle:
+                handle.startSystemMove()
+                return
+        super().mousePressEvent(event)
+
+
+class _DetectWorker(QThread):
+    done = Signal(list)
+
+    def run(self):
+        try:
+            found = Detector().detect(measure=True)
+        except Exception:
+            found = []
+        self.done.emit(found)
+
+
+def _clear(layout):
+    while layout.count():
+        item = layout.takeAt(0)
+        w = item.widget()
+        if w is not None:
+            w.setParent(None)
+            w.deleteLater()
+
+
+def _kv_line(key: str, value: str) -> QWidget:
+    w = QWidget()
+    row = QHBoxLayout(w)
+    row.setContentsMargins(0, 0, 0, 0)
+    row.setSpacing(10)
+    k = QLabel(key)
+    k.setObjectName("SectionHint")
+    k.setFixedWidth(84)
+    v = QLabel(value)
+    v.setObjectName("TileMeta")
+    v.setWordWrap(True)
+    v.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+    row.addWidget(k)
+    row.addWidget(v, 1)
+    return w
 
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.setObjectName("MainWindow")
         self.setWindowTitle(f"{APP_NAME} {APP_VERSION}")
         self.setWindowIcon(icon_provider.app_icon())
-        self.resize(1240, 860)
-        self.setMinimumSize(1080, 720)
+        self.setWindowFlags(Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.resize(WIN_W, WIN_H)
+        self.setMinimumSize(880, 556)
 
-        self.settings = QSettings("ResidualCleaner", "Cleaner")
-        self.rows: dict[str, AppRow] = {}
-        self.items: list[Item] = []
-        self.items_by_app: dict[str, list[Item]] = {}
-        self.status: dict = {}
-        self.summary: dict = {}
-        self.worker: Worker | None = None
-        self.busy = False
-        self.force_quit = False
-        self.pending_release: dict | None = None
-        self.check_worker = None
-        self.update_worker = None
-        self.tray: TrayController | None = None
-        self.hud: ScanHud | None = None
-        self.patrol: PatrolWindow | None = None
-        self._last_cleanup: dict | None = None
-        self.preview_mode = env_flag(ENV_PREVIEW)
-
+        self._busy = False
+        self._found: list[Detected] = []
+        self._tiles: dict[str, AppTile] = {}
+        self._selected: set[str] = set()
+        self.mode = MODE_SINGLE
+        self._detect: _DetectWorker | None = None
+        self._worker: Worker | None = None
+        self._upd: updater.CheckWorker | None = None
+        self._patrol: PatrolWindow | None = None
+        self._tray: TrayController | None = None
+        self._release: dict | None = None
+        self._pending_bundle = False
         self._ensure_log_dir()
+
         self._build_ui()
         self._wire()
         self._init_tray()
+        self._refresh_boot_labels()
 
-        QTimer.singleShot(120, self._show_disclaimer_if_needed)
-        if self.preview_mode:
-            QTimer.singleShot(60, self._populate_demo)
-        else:
-            QTimer.singleShot(260, self.start_scan)
-            QTimer.singleShot(4000, self._auto_check_update)
+        QTimer.singleShot(60, self._refresh_installed)
+        if not env_flag(ENV_PREVIEW):
+            QTimer.singleShot(3200, lambda: self._check_updates(silent=True))
 
-    # ------------------------------------------------------------ 基础设施
+    # ------------------------------------------------------------ 基础
     def _ensure_log_dir(self):
         try:
             os.makedirs(LOG_DIR, exist_ok=True)
-            if not os.path.exists(LOG_FILE):
-                with open(LOG_FILE, "w", encoding="utf-8") as f:
-                    f.write(f"{APP_NAME} {APP_VERSION} 日志\n")
         except Exception:
             pass
 
     def log(self, message: str, level: str = "info"):
-        self.console.log(message, level)
+        stamp = time.strftime("%H:%M:%S")
         try:
             with open(LOG_FILE, "a", encoding="utf-8") as f:
-                f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {message}\n")
+                f.write(f"{stamp} [{level}] {message}\n")
         except Exception:
             pass
 
-    # ------------------------------------------------------------ 界面构建
+    # ------------------------------------------------------------ 构建
     def _build_ui(self):
-        root = QWidget()
-        root.setObjectName("Root")
-        self.setCentralWidget(root)
-        outer = QVBoxLayout(root)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(0)
-
-        outer.addWidget(self._build_topbar())
+        host = QWidget()
+        host.setObjectName("Content")
+        root = QVBoxLayout(host)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+        root.addWidget(self._build_top())
 
         body = QWidget()
-        body_lay = QHBoxLayout(body)
-        body_lay.setContentsMargins(0, 0, 0, 0)
-        body_lay.setSpacing(0)
-        body_lay.addWidget(self._build_left_panel(), 66)
-        self.console = ConsoleWidget()
-        body_lay.addWidget(self.console, 34)
-        outer.addWidget(body, 1)
+        row = QHBoxLayout(body)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(0)
+        row.addWidget(self._build_side())
 
-        self.status_label = QLabel("就绪")
-        self.status_label.setObjectName("FooterText")
-        self.status_label.setMinimumHeight(26)
-        outer.addWidget(self.status_label)
+        self.stack = QWidget()
+        self.stack_lay = QVBoxLayout(self.stack)
+        self.stack_lay.setContentsMargins(0, 0, 0, 0)
+        self.stack_lay.setSpacing(0)
+        self.page_clean = self._build_page_clean()
+        self.page_bundle = self._build_page_bundle()
+        self.page_about = self._build_page_about()
+        for page in (self.page_clean, self.page_bundle, self.page_about):
+            self.stack_lay.addWidget(page)
+        row.addWidget(self.stack, 1)
 
-    def _build_topbar(self) -> QWidget:
-        bar = QWidget()
+        row.addWidget(self._build_rail())
+        root.addWidget(body, 1)
+
+        foot = QWidget()
+        foot.setFixedHeight(12)
+        frow = QHBoxLayout(foot)
+        frow.setContentsMargins(0, 0, 2, 2)
+        frow.addStretch(1)
+        grip = QSizeGrip(foot)
+        grip.setFixedSize(12, 12)
+        frow.addWidget(grip)
+        root.addWidget(foot)
+
+        self.setCentralWidget(host)
+        self._switch_page(0)
+
+    def _build_top(self) -> QWidget:
+        bar = _DragBar()
         bar.setObjectName("TopBar")
-        bar.setFixedHeight(58)
-        lay = QHBoxLayout(bar)
-        lay.setContentsMargins(18, 0, 18, 0)
-        lay.setSpacing(10)
+        bar.setFixedHeight(44)
+        row = QHBoxLayout(bar)
+        row.setContentsMargins(12, 0, 8, 0)
+        row.setSpacing(8)
 
         logo = QLabel()
-        logo.setPixmap(icon_provider.app_pixmap(30))
-        logo.setFixedSize(32, 32)
-        lay.addWidget(logo)
+        logo.setPixmap(icon_provider.app_pixmap(20))
+        logo.setFixedSize(20, 20)
+        row.addWidget(logo)
 
-        titles = QVBoxLayout()
-        titles.setSpacing(0)
         title = QLabel(APP_NAME)
-        title.setObjectName("BrandTitle")
-        sub = QLabel(f"{APP_NAME_EN} · {APP_TAGLINE}")
-        sub.setObjectName("BrandSub")
-        titles.addWidget(title)
-        titles.addWidget(sub)
-        lay.addLayout(titles)
+        title.setStyleSheet("font-size: 11pt; font-weight: 600;")
+        row.addWidget(title)
+
+        ver = QLabel(f"v{APP_VERSION}")
+        ver.setObjectName("SectionHint")
+        row.addWidget(ver)
+        row.addStretch(1)
+
+        self.chip_admin = QLabel("管理员")
+        self.chip_admin.setObjectName("Badge")
+        row.addWidget(self.chip_admin)
+
+        self.btn_update = QPushButton()
+        self.btn_update.setObjectName("IconBtn")
+        self.btn_update.setIcon(glyph_icon("update", 16, "#5B6470"))
+        self.btn_update.setToolTip("检查更新")
+        self.btn_update.setFixedSize(26, 26)
+        row.addWidget(self.btn_update)
+
+        self.btn_min = QPushButton()
+        self.btn_min.setObjectName("IconBtn")
+        self.btn_min.setIcon(glyph_icon("min", 16, "#5B6470"))
+        self.btn_min.setToolTip("最小化到托盘")
+        self.btn_min.setFixedSize(26, 26)
+        row.addWidget(self.btn_min)
+
+        self.btn_close = QPushButton()
+        self.btn_close.setObjectName("IconBtn")
+        self.btn_close.setIcon(glyph_icon("close", 16, "#5B6470"))
+        self.btn_close.setToolTip("关闭窗口（程序仍在托盘）")
+        self.btn_close.setFixedSize(26, 26)
+        row.addWidget(self.btn_close)
+        return bar
+
+    def _build_side(self) -> QWidget:
+        side = QFrame()
+        side.setObjectName("Sidebar")
+        side.setFixedWidth(168)
+        lay = QVBoxLayout(side)
+        lay.setContentsMargins(0, 12, 0, 10)
+        lay.setSpacing(0)
+
+        self.nav_group = QButtonGroup(self)
+        self.nav_group.setExclusive(True)
+        self.nav_clean = NavItem("软件清理", "clean")
+        self.nav_bundle = NavItem("一条龙", "bundle")
+        self.nav_about = NavItem("关于与更新", "info")
+        for i, item in enumerate((self.nav_clean, self.nav_bundle, self.nav_about)):
+            self.nav_group.addButton(item, i)
+            lay.addWidget(item)
 
         lay.addStretch(1)
 
-        self.btn_deepscan = QPushButton("深度扫描")
-        self.btn_deepscan.setObjectName("Ghost")
-        self.btn_deepscan.setCursor(Qt.PointingHandCursor)
-        self.btn_deepscan.setToolTip("在右下角小窗里显示扫盘进度，扫完再进结果窗口")
-        lay.addWidget(self.btn_deepscan)
+        card = QFrame()
+        card.setObjectName("Card")
+        cl = QVBoxLayout(card)
+        cl.setContentsMargins(10, 8, 10, 8)
+        cl.setSpacing(4)
+        self.lb_patrol = QLabel("开机巡检：未开启")
+        self.lb_patrol.setObjectName("SectionHint")
+        self.lb_patrol.setWordWrap(True)
+        cl.addWidget(self.lb_patrol)
+        self.lb_support = QLabel(SUPPORT_HINT)
+        self.lb_support.setObjectName("AdFooter")
+        self.lb_support.setWordWrap(True)
+        cl.addWidget(self.lb_support)
+        wrap = QWidget()
+        wl = QVBoxLayout(wrap)
+        wl.setContentsMargins(10, 0, 10, 10)
+        wl.addWidget(card)
+        lay.addWidget(wrap)
+        return side
 
-        self.btn_update = QPushButton("检查更新")
-        self.btn_update.setObjectName("Ghost")
-        self.btn_update.setCursor(Qt.PointingHandCursor)
-        self.btn_update.setToolTip("从 GitHub Releases 检查新版本，可下载后自动安装")
-        lay.addWidget(self.btn_update)
+    def _build_page_clean(self) -> QWidget:
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        lay.setContentsMargins(14, 12, 14, 10)
+        lay.setSpacing(10)
 
-        self.badge_boot = QLabel("巡检：关")
-        self.badge_boot.setObjectName("AdminBadge")
-        self.badge_boot.setCursor(Qt.PointingHandCursor)
-        self.badge_boot.setToolTip("开机巡检：勾选后下次开机会在右下角弹出巡检小窗，随时可关闭")
-        self.badge_boot.mousePressEvent = self._on_boot_badge_clicked  # type: ignore
-        lay.addWidget(self.badge_boot)
-
-        self.badge_version = QLabel(f"v{APP_VERSION}")
-        self.badge_version.setObjectName("VersionBadge")
-        lay.addWidget(self.badge_version)
-
-        is_admin = elevation.is_admin()
-        self.badge_admin = QLabel("管理员模式" if is_admin else "受限模式")
-        self.badge_admin.setObjectName("AdminBadge")
-        self.badge_admin.setProperty("on", "true" if is_admin else "false")
-        self.badge_admin.setProperty("warn", "false" if is_admin else "true")
-        self.badge_admin.setCursor(Qt.PointingHandCursor)
-        self.badge_admin.setToolTip(
-            "已获得最高权限，可处理服务与受保护目录" if is_admin
-            else "点击以管理员身份重新启动，获得完整清理权限"
-        )
-        self.badge_admin.mousePressEvent = self._on_admin_badge_clicked  # type: ignore
-        lay.addWidget(self.badge_admin)
-
-        self.btn_rescan = QPushButton("重新扫描")
-        self.btn_rescan.setObjectName("Primary")
-        self.btn_rescan.setCursor(Qt.PointingHandCursor)
-        lay.addWidget(self.btn_rescan)
-        return bar
-
-    def _build_left_panel(self) -> QWidget:
-        panel = QFrame()
-        panel.setObjectName("LeftPanel")
-        lay = QVBoxLayout(panel)
-        lay.setContentsMargins(0, 0, 0, 0)
-        lay.setSpacing(0)
-
-        # 标题区
-        head_wrap = QWidget()
-        head = QHBoxLayout(head_wrap)
-        head.setContentsMargins(20, 14, 20, 8)
-        head.setSpacing(10)
-        title = QLabel("清理工作台")
+        head = QHBoxLayout()
+        head.setSpacing(8)
+        title = QLabel("选择要卸载的软件")
         title.setObjectName("SectionTitle")
-        hint = QLabel("勾选需要卸载的应用")
-        hint.setObjectName("SectionHint")
-        self.head_hint = hint
-        self.btn_select_all = QPushButton("全选")
-        self.btn_select_all.setObjectName("Ghost")
-        self.btn_select_all.setCursor(Qt.PointingHandCursor)
         head.addWidget(title)
-        head.addWidget(hint)
+        self.lb_count = QLabel("正在检测本机…")
+        self.lb_count.setObjectName("SectionHint")
+        head.addWidget(self.lb_count)
         head.addStretch(1)
-        head.addWidget(self.btn_select_all)
-        lay.addWidget(head_wrap)
+        self.btn_refresh = QPushButton("重新检测")
+        self.btn_refresh.setObjectName("Ghost")
+        self.btn_all = QPushButton("全选")
+        self.btn_all.setObjectName("Link")
+        head.addWidget(self.btn_refresh)
+        head.addWidget(self.btn_all)
+        lay.addLayout(head)
 
-        # 读数条
-        stats_wrap = QWidget()
-        stats = QHBoxLayout(stats_wrap)
-        stats.setContentsMargins(20, 0, 20, 10)
-        stats.setSpacing(0)
-        self.card_installed = StatCard("检测到应用")
-        self.card_items = StatCard("可清理项")
-        self.card_size = StatCard("占用空间")
-        stats.addWidget(self.card_installed, 1)
-        stats.addWidget(self.card_items, 1)
-        stats.addWidget(self.card_size, 1)
-        lay.addWidget(stats_wrap)
+        modes = QHBoxLayout()
+        modes.setSpacing(10)
+        self.card_single = ModeCard(MODE_SINGLE, MODE_INFO[MODE_SINGLE]["title"],
+                                    MODE_INFO[MODE_SINGLE]["line"], parent=page)
+        self.card_bundle = ModeCard(MODE_BUNDLE, MODE_INFO[MODE_BUNDLE]["title"],
+                                    MODE_INFO[MODE_BUNDLE]["line"], "含扫盘", page)
+        modes.addWidget(self.card_single, 1)
+        modes.addWidget(self.card_bundle, 1)
+        lay.addLayout(modes)
 
-        lay.addWidget(table_header())
-
+        card = QFrame()
+        card.setObjectName("Card")
+        cl = QVBoxLayout(card)
+        cl.setContentsMargins(1, 1, 1, 1)
+        cl.setSpacing(0)
         scroll = QScrollArea()
-        scroll.setObjectName("AppScroll")
         scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.app_scroll = scroll
-        host = QWidget()
-        host.setObjectName("AppListHost")
-        self.app_list_lay = QVBoxLayout(host)
-        self.app_list_lay.setContentsMargins(0, 0, 0, 0)
-        self.app_list_lay.setSpacing(0)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.tile_host = QWidget()
+        self.tile_box = QVBoxLayout(self.tile_host)
+        self.tile_box.setContentsMargins(0, 0, 0, 0)
+        self.tile_box.setSpacing(0)
+        self.tile_box.addStretch(1)
+        scroll.setWidget(self.tile_host)
+        cl.addWidget(scroll)
+        lay.addWidget(card, 1)
 
-        for idx, app in enumerate(APPS):
-            row = AppRow(idx, app)
-            row.toggled.connect(self._on_row_toggled)
-            self.rows[app["key"]] = row
-            self.app_list_lay.addWidget(row)
-        self.app_list_lay.addStretch(1)
-        scroll.setWidget(host)
-        scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.list_fade = BottomFade(scroll.viewport(), 30)
+        foot = QHBoxLayout()
+        foot.setSpacing(8)
+        self.lb_stat = QLabel("尚未检测")
+        self.lb_stat.setObjectName("StatChip")
+        foot.addWidget(self.lb_stat)
+        foot.addStretch(1)
+        self.btn_clear = QPushButton("取消选择")
+        self.btn_clear.setObjectName("Ghost")
+        self.btn_primary = QPushButton("卸载选中（0）")
+        self.btn_primary.setObjectName("Primary")
+        foot.addWidget(self.btn_clear)
+        foot.addWidget(self.btn_primary)
+        lay.addLayout(foot)
 
-        # 列表容器：渐隐层与“还有更多”提示共同解决半截行被硬切的问题
-        list_holder = QWidget()
-        grid = QGridLayout(list_holder)
-        grid.setContentsMargins(20, 0, 20, 0)
-        grid.setSpacing(0)
-        grid.addWidget(scroll, 0, 0)
-        lay.addWidget(list_holder, 1)
+        self.card_single.set_active(True)
+        return page
 
-        bar = scroll.verticalScrollBar()
-        bar.rangeChanged.connect(lambda *_: self._update_more_hint())
-        bar.valueChanged.connect(lambda *_: self._update_more_hint())
+    def _build_page_bundle(self) -> QWidget:
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        lay.setContentsMargins(14, 12, 14, 10)
+        lay.setSpacing(10)
 
-        self.promo = PromoCard()
-        lay.addWidget(self.promo)
+        title = QLabel("一条龙 · 全家桶清除")
+        title.setObjectName("SectionTitle")
+        lay.addWidget(title)
 
-        # 操作区
-        act_wrap = QWidget()
-        actions = QHBoxLayout(act_wrap)
-        actions.setContentsMargins(20, 12, 20, 14)
-        actions.setSpacing(8)
-        self.btn_uninstall = QPushButton("卸载选中应用")
-        self.btn_uninstall.setObjectName("Primary")
-        self.btn_uninstall.setCursor(Qt.PointingHandCursor)
-        self.btn_uninstall.setEnabled(False)
-        self.btn_uninstall.setMinimumHeight(38)
+        card = QFrame()
+        card.setObjectName("Card")
+        cl = QVBoxLayout(card)
+        cl.setContentsMargins(12, 10, 12, 10)
+        cl.setSpacing(6)
+        sub = QLabel("四个步骤按顺序跑，中间不自动重启，每一步都要你确认。")
+        sub.setObjectName("SectionHint")
+        sub.setWordWrap(True)
+        cl.addWidget(sub)
+        for i, (step, note) in enumerate((
+                ("全量拆解", "本机检测到的全部 360 系软件，进程→服务→目录→注册表逐层清"),
+                ("深度扫盘", "扫描各盘一级 360 目录、两处 Temp、桌面与下载目录"),
+                ("残余复核", "残留项列进小窗，逐项勾选后再删，失败项给解决方案"),
+                ("开机巡检", "可选登记：下次登录在右下角复查一次，结果仍需你确认")), 1):
+            row = QHBoxLayout()
+            row.setSpacing(8)
+            num = QLabel(str(i))
+            num.setObjectName("Mono")
+            num.setFixedWidth(14)
+            row.addWidget(num)
+            name = QLabel(step)
+            name.setObjectName("TileName")
+            name.setFixedWidth(62)
+            row.addWidget(name)
+            desc = QLabel(note)
+            desc.setObjectName("TileMeta")
+            desc.setWordWrap(True)
+            row.addWidget(desc, 1)
+            cl.addLayout(row)
+        lay.addWidget(card)
 
-        self.btn_oneclick = QPushButton("360 一键清除")
-        self.btn_oneclick.setObjectName("Danger")
-        self.btn_oneclick.setCursor(Qt.PointingHandCursor)
-        self.btn_oneclick.setMinimumHeight(38)
+        patrol = QFrame()
+        patrol.setObjectName("Card")
+        pl = QVBoxLayout(patrol)
+        pl.setContentsMargins(12, 10, 12, 10)
+        pl.setSpacing(6)
+        prow = QHBoxLayout()
+        self.cb_boot = QCheckBox("登记开机巡检（右下角小窗）")
+        self.cb_boot.toggled.connect(self._toggle_boot)
+        prow.addWidget(self.cb_boot)
+        prow.addStretch(1)
+        self.btn_patrol_now = QPushButton("立即巡检")
+        self.btn_patrol_now.setObjectName("Ghost")
+        prow.addWidget(self.btn_patrol_now)
+        pl.addLayout(prow)
+        self.lb_boot = QLabel(bootguard.state_text())
+        self.lb_boot.setObjectName("SectionHint")
+        self.lb_boot.setWordWrap(True)
+        pl.addWidget(self.lb_boot)
+        lay.addWidget(patrol)
 
-        self.btn_log = QPushButton("打开日志")
-        self.btn_log.setObjectName("Ghost")
-        self.btn_log.setCursor(Qt.PointingHandCursor)
-        self.btn_log.setMinimumHeight(38)
+        tech = QFrame()
+        tech.setObjectName("Card")
+        tl = QVBoxLayout(tech)
+        tl.setContentsMargins(12, 10, 12, 10)
+        tl.setSpacing(5)
+        cap = QLabel("会用到哪些技术")
+        cap.setObjectName("TechTitle")
+        tl.addWidget(cap)
+        for name, note in BUNDLE_TECH:
+            row = QHBoxLayout()
+            row.setSpacing(8)
+            lb = QLabel(name)
+            lb.setObjectName("TileName")
+            lb.setFixedWidth(76)
+            row.addWidget(lb)
+            desc = QLabel(note)
+            desc.setObjectName("TileMeta")
+            desc.setWordWrap(True)
+            row.addWidget(desc, 1)
+            tl.addLayout(row)
+        lay.addWidget(tech)
+        lay.addStretch(1)
 
-        actions.addWidget(self.btn_uninstall, 1)
-        actions.addWidget(self.btn_oneclick, 1)
-        actions.addWidget(self.btn_log)
-        lay.addWidget(act_wrap)
-        return panel
+        foot = QHBoxLayout()
+        self.lb_bundle_hint = QLabel("清完会问你要不要重启，20 秒内可撤销")
+        self.lb_bundle_hint.setObjectName("SectionHint")
+        foot.addWidget(self.lb_bundle_hint)
+        foot.addStretch(1)
+        self.btn_bundle = QPushButton("开始一条龙清除")
+        self.btn_bundle.setObjectName("Primary")
+        foot.addWidget(self.btn_bundle)
+        lay.addLayout(foot)
+        return page
 
+    def _build_page_about(self) -> QWidget:
+        page = QWidget()
+        lay = QVBoxLayout(page)
+        lay.setContentsMargins(14, 12, 14, 10)
+        lay.setSpacing(10)
+
+        title = QLabel("关于与更新")
+        title.setObjectName("SectionTitle")
+        lay.addWidget(title)
+
+        info = QFrame()
+        info.setObjectName("Card")
+        il = QVBoxLayout(info)
+        il.setContentsMargins(12, 10, 12, 10)
+        il.setSpacing(5)
+        il.addWidget(_kv_line("当前版本", f"v{APP_VERSION}"))
+        il.addWidget(_kv_line("界面版本", "1.3 紧凑布局 · 浅色安全软件风格"))
+        il.addWidget(_kv_line("支持范围",
+                              f"{len(APPS) - 1} 款 360 系软件 + 小鸟壁纸（共 {len(APPS)} 款）"))
+        il.addWidget(_kv_line("管理员", "已获得管理员权限" if elevation.is_admin()
+                              else "未获得，请右键以管理员身份运行"))
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        self.btn_check = QPushButton("检查更新")
+        self.btn_check.setObjectName("Ghost")
+        self.btn_repo = QPushButton("打开发布页")
+        self.btn_repo.setObjectName("Link")
+        self.btn_log = QPushButton("打开日志目录")
+        self.btn_log.setObjectName("Link")
+        row.addWidget(self.btn_check)
+        row.addWidget(self.btn_repo)
+        row.addWidget(self.btn_log)
+        row.addStretch(1)
+        il.addLayout(row)
+        lay.addWidget(info)
+
+        apps_card = QFrame()
+        apps_card.setObjectName("Card")
+        al = QVBoxLayout(apps_card)
+        al.setContentsMargins(12, 10, 12, 10)
+        al.setSpacing(4)
+        cap = QLabel("支持清单")
+        cap.setObjectName("TechTitle")
+        al.addWidget(cap)
+        names = [a["name"] for a in APPS]
+        for i in range(0, len(names), 3):
+            row = QHBoxLayout()
+            row.setSpacing(6)
+            for name in names[i:i + 3]:
+                lb = QLabel(name)
+                lb.setObjectName("TileMeta")
+                row.addWidget(lb, 1)
+            if len(names[i:i + 3]) < 3:
+                row.addStretch(1)
+            al.addLayout(row)
+        lay.addWidget(apps_card)
+
+        safe = QFrame()
+        safe.setObjectName("Card")
+        sl = QVBoxLayout(safe)
+        sl.setContentsMargins(12, 10, 12, 10)
+        sl.setSpacing(3)
+        cap = QLabel("安全边界")
+        cap.setObjectName("TechTitle")
+        sl.addWidget(cap)
+        for line in ("不做后台静默批量删除，巡检结果必须你确认",
+                     "不自动重启、不做重启循环、不注册后台服务",
+                     "只清理 360 系与小鸟壁纸相关目录，不碰其他软件"):
+            lb = QLabel("· " + line)
+            lb.setObjectName("TileMeta")
+            lb.setWordWrap(True)
+            sl.addWidget(lb)
+        lay.addWidget(safe)
+        lay.addStretch(1)
+        return page
+
+    def _build_rail(self) -> QWidget:
+        rail = QWidget()
+        rail.setFixedWidth(264)
+        lay = QVBoxLayout(rail)
+        lay.setContentsMargins(10, 12, 12, 12)
+        lay.setSpacing(10)
+        self.panel_tech = TechPanel()
+        self.solbox = SolutionBox()
+        self.ad = AdSlot()
+        lay.addWidget(self.panel_tech)
+        lay.addWidget(self.solbox)
+        lay.addWidget(self.ad)
+        lay.addStretch(1)
+        self.lb_tip = QLabel("日志：%s" % LOG_DIR)
+        self.lb_tip.setObjectName("AdFooter")
+        self.lb_tip.setWordWrap(True)
+        lay.addWidget(self.lb_tip)
+        return rail
+
+    # ------------------------------------------------------------ 连接
     def _wire(self):
-        self.btn_rescan.clicked.connect(self.start_scan)
-        self.btn_deepscan.clicked.connect(self._start_deep_scan)
-        self.btn_select_all.clicked.connect(self._toggle_select_all)
-        self.btn_uninstall.clicked.connect(self._on_uninstall_clicked)
-        self.btn_oneclick.clicked.connect(self._on_oneclick_clicked)
-        self.btn_update.clicked.connect(self._on_update_clicked)
-        self.promo.action.connect(self._on_promo_clicked)
-        self.btn_log.clicked.connect(self._open_log)
+        self.nav_group.idClicked.connect(self._switch_page)
+        self.btn_refresh.clicked.connect(self._refresh_installed)
+        self.btn_all.clicked.connect(self._toggle_all)
+        self.btn_clear.clicked.connect(self._clear_selection)
+        self.btn_primary.clicked.connect(self._on_primary)
+        self.btn_bundle.clicked.connect(self._start_bundle)
+        self.btn_patrol_now.clicked.connect(self._start_patrol)
+        self.btn_check.clicked.connect(lambda: self._check_updates(False))
+        self.btn_repo.clicked.connect(updater.open_release_page)
+        self.btn_log.clicked.connect(self._open_log_dir)
+        self.btn_update.clicked.connect(lambda: self._check_updates(False))
+        self.btn_min.clicked.connect(self._minimize_to_tray)
+        self.btn_close.clicked.connect(self.close)
+        self.card_single.clicked.connect(self._set_mode)
+        self.card_bundle.clicked.connect(self._set_mode)
+        self.ad.clicked.connect(self._on_ad_clicked)
 
-    # ------------------------------------------------------------ 交互辅助
-    def _on_admin_badge_clicked(self, _event):
-        if elevation.is_admin():
-            QMessageBox.information(self, "权限状态",
-                                    "当前已是管理员权限，可执行完整清理。")
+    def _switch_page(self, index: int):
+        for i, page in enumerate((self.page_clean, self.page_bundle,
+                                  self.page_about)):
+            page.setVisible(i == index)
+        for i, nav in enumerate((self.nav_clean, self.nav_bundle, self.nav_about)):
+            nav.setChecked(i == index)
+
+    def _set_mode(self, mode: str):
+        if self._busy or mode not in MODE_INFO:
             return
-        if elevation.relaunch_as_admin():
-            self.close()
-            QTimer.singleShot(0, lambda: os._exit(0))
-
-    def _on_row_toggled(self, _key: str, _checked: bool):
+        self.mode = mode
+        self.card_single.set_active(mode == MODE_SINGLE)
+        self.card_bundle.set_active(mode == MODE_BUNDLE)
+        single = mode == MODE_SINGLE
+        for tile in self._tiles.values():
+            tile.box.setEnabled(single)
+            if not single:
+                tile.set_checked(False)
+        self._switch_page(1 if mode == MODE_BUNDLE else 0)
         self._update_action_state()
 
-    def _selected_apps(self) -> list[dict]:
-        return [a for a in APPS if self.rows[a["key"]].is_checked()]
+    def _on_ad_clicked(self, key: str):
+        tile = self._tiles.get(key)
+        if tile is None:
+            QMessageBox.information(
+                self, "本机未安装",
+                "这款软件没有在本机检测到，所以列表里没有它。\n"
+                "推广位只做公告，不会凭空列出未安装的软件。")
+            return
+        self.panel_tech.push(f"推广位：已在列表里勾选 {key}")
+        tile.set_checked(True)
+        self._switch_page(0)
 
-    def _toggle_select_all(self):
-        selectable = [r for r in self.rows.values() if r.cb.isEnabled()]
-        target = (not all(r.is_checked() for r in selectable)) if selectable else False
-        for r in selectable:
-            r.set_checked(target)
-        self.btn_select_all.setText("全不选" if target else "全选")
+    # ------------------------------------------------------------ 检测
+    def _refresh_installed(self):
+        if self._busy:
+            return
+        if env_flag(ENV_PREVIEW):
+            if os.environ.get("PREVIEW_EMPTY") == "1":
+                self._on_detected([])
+            else:
+                self._populate_demo()
+            return
+        if self._detect and self._detect.isRunning():
+            return
+        self.lb_count.setText("正在检测本机…")
+        self._detect = _DetectWorker(self)
+        self._detect.done.connect(self._on_detected)
+        self._detect.start()
+
+    def _on_detected(self, found: list):
+        _clear(self.tile_box)
+        self._tiles.clear()
+        self._selected.clear()
+        self._found = list(found)
+
+        if not found:
+            self.tile_box.addWidget(EmptyState(
+                "本机没有检测到 360 系软件或小鸟壁纸",
+                "支持清单里的其余产品不会显示；装过但目录已清空的，也不再列出"))
+            self.lb_count.setText("检测到 0 款")
+            self.lb_stat.setText("没有可清理对象")
+            self._update_action_state()
+            return
+
+        for item in found:
+            tile = AppTile(item)
+            tile.toggled.connect(self._on_tile_toggled)
+            self.tile_box.addWidget(tile)
+            self._tiles[item.key] = tile
+        self.tile_box.addStretch(1)
+
+        total = sum(f.size for f in found)
+        self.lb_count.setText(f"检测到 {len(found)} 款")
+        self.lb_stat.setText(
+            f"{len(found)} 款 · {cleanup.human_size(total)} · "
+            f"{sum(1 for f in found if f.running)} 款正在运行")
+        self._set_mode(self.mode)
         self._update_action_state()
+        self.log(f"检测到 {len(found)} 款：" +
+                 "、".join(f.key for f in found))
+
+    def _on_tile_toggled(self, key: str, checked: bool):
+        if checked:
+            self._selected.add(key)
+        else:
+            self._selected.discard(key)
+        self._update_action_state()
+
+    def _toggle_all(self):
+        if self.mode != MODE_SINGLE:
+            return
+        all_on = all(t.is_checked() for t in self._tiles.values()) if self._tiles else False
+        for tile in self._tiles.values():
+            tile.set_checked(not all_on)
 
     def _clear_selection(self):
-        for r in self.rows.values():
-            r.set_checked(False)
-        self.btn_select_all.setText("全选")
-        self._update_action_state()
-
-    def _installed_apps(self) -> list[dict]:
-        return [a for a in APPS if self.status.get(a["key"], {}).get("installed")]
-
-    def _refresh_promo(self):
-        installed = len(self._installed_apps())
-        if self.busy:
-            self.promo.set_button_state(False, "执行中…", "任务执行期间不可再次发起")
-        elif not self.status:
-            self.promo.set_button_state(False, "扫描后可用", "先完成一次扫描")
-        elif installed == 0:
-            self.promo.set_button_state(False, "未检测到 360", "当前系统没有可清除的 360 组件")
-        else:
-            self.promo.set_button_state(True, "彻底清除",
-                                        f"一次勾选全部 {installed} 款 360 应用并执行完整拆除")
+        for tile in self._tiles.values():
+            tile.set_checked(False)
 
     def _update_action_state(self):
-        count = len(self._selected_apps())
-        self.btn_uninstall.setText(f"卸载选中应用（{count}）" if count else "卸载选中应用")
-        self.btn_uninstall.setEnabled(count > 0 and not self.busy)
-        self.btn_uninstall.setToolTip("" if count else "先勾选需要卸载的应用（也可直接点整行）")
-        self.btn_oneclick.setEnabled(not self.busy)
-        self.btn_rescan.setEnabled(not self.busy)
+        n = len(self._tiles)
+        if self.mode == MODE_BUNDLE:
+            self.btn_primary.setText("开始一条龙清除")
+            self.btn_primary.setEnabled(n > 0 and not self._busy)
+            self.btn_bundle.setEnabled(n > 0 and not self._busy)
+        else:
+            self.btn_primary.setText(f"卸载选中（{len(self._selected)}）")
+            self.btn_primary.setEnabled(bool(self._selected) and not self._busy)
+            self.btn_bundle.setEnabled(n > 0 and not self._busy)
+        self.btn_refresh.setEnabled(not self._busy)
+        self.btn_all.setEnabled(not self._busy and self.mode == MODE_SINGLE)
 
-    def _update_more_hint(self):
-        if self.busy:
+    # ------------------------------------------------------------ 卸载
+    def _on_primary(self):
+        if self.mode == MODE_BUNDLE:
+            self._start_bundle()
             return
-        bar = self.app_scroll.verticalScrollBar()
-        more = bar.maximum() > 0 and bar.value() < bar.maximum()
-        self.head_hint.setText("勾选需要卸载的应用 · 列表可滚动查看全部"
-                               if more else "勾选需要卸载的应用")
+        apps = [f.app for f in self._found if f.key in self._selected]
+        if not apps:
+            QMessageBox.information(self, "先选一下", "请先勾选要卸载的软件。")
+            return
+        names = "\n".join("· " + a["name"] for a in apps)
+        ret = QMessageBox.question(
+            self, "确认单项卸载",
+            f"即将卸载：\n{names}\n\n"
+            "不会调用官方卸载程序，直接结束进程、删服务、删目录、清注册表。\n"
+            "单项模式不扫盘、不登记开机巡检。继续？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if ret == QMessageBox.StandardButton.Yes:
+            self._start_uninstall(apps, bundle=False)
 
-    def _open_log(self):
-        try:
-            os.startfile(LOG_FILE)
-        except Exception as exc:
-            QMessageBox.warning(self, "无法打开日志", str(exc))
+    def _start_bundle(self):
+        if self._busy:
+            return
+        if not self._found:
+            self._refresh_installed()
+            QMessageBox.information(self, "还没有可清理对象", "先重新检测一次。")
+            return
+        total = sum(f.size for f in self._found)
+        ret = QMessageBox.question(
+            self, "确认一条龙清除",
+            f"将清理本机检测到的 {len(self._found)} 款，共 {cleanup.human_size(total)}。\n\n"
+            "流程：全量拆解 → 深度扫盘 → 残余复核 → 可选开机巡检。\n"
+            "自保护开启时部分项目会被内核拦下，会给出解决方案，不会假装删成功。\n"
+            "清完会问你要不要重启，不自动重启。继续？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if ret == QMessageBox.StandardButton.Yes:
+            self._start_uninstall([f.app for f in self._found], bundle=True)
 
-    def _busy(self, on: bool, stage: str = ""):
-        self.busy = on
+    def _start_uninstall(self, apps: list, bundle: bool):
+        if self._busy:
+            return
+        self._busy = True
+        self._pending_bundle = bundle
+        self.panel_tech.reset("开始拆解…")
+        self.panel_tech.set_badge("执行中", "warn")
+        self.solbox.clear()
+        self._switch_page(0)
         self._update_action_state()
-        self.btn_select_all.setEnabled(not on)
-        for row in self.rows.values():
-            row.set_interactive(not on)
-        self.head_hint.setText("正在执行，暂不可调整勾选" if on else "勾选需要卸载的应用")
-        self._refresh_promo()
-        if stage:
-            self.status_label.setText(stage)
-            self.console.set_stage(stage)
-        if not on:
-            if self.hud is not None:
-                self.hud.hide()
-            # 任务结束后恢复“可滚动”提示与渐隐层正确状态
-            QTimer.singleShot(0, self._update_more_hint)
 
-    # ------------------------------------------------------------ 托盘 / 更新
-    def _init_tray(self):
-        if self.preview_mode:
+        self._worker = Worker(Worker.MODE_UNINSTALL,
+                              {"apps": apps, "with_common": bundle}, self)
+        self._worker.log.connect(self._on_log)
+        self._worker.progress.connect(self._on_progress)
+        self._worker.tech.connect(self._on_tech)
+        self._worker.result.connect(self._on_uninstall_result)
+        self._worker.start()
+
+    def _on_log(self, message: str):
+        self.log(message)
+        if len(message) > 96:
+            message = message[:93] + "…"
+        self.panel_tech.push(message)
+
+    def _on_progress(self, pct: int, text: str):
+        self.panel_tech.set_progress(pct)
+        self.panel_tech.set_stage(text)
+
+    def _on_tech(self, text: str):
+        self.panel_tech.set_tech("技术：" + text)
+        self.log("技术：" + text)
+
+    def _on_uninstall_result(self, data: dict):
+        self._busy = False
+        self._update_action_state()
+        ok = int(data.get("ok", 0))
+        fail = int(data.get("fail", 0))
+        pending = int(data.get("pending", 0))
+        freed = data.get("freed_text", "")
+        self.panel_tech.set_progress(100)
+        self.panel_tech.set_stage(
+            f"拆解结束：成功 {ok} · 失败 {fail} · 登记重启删除 {pending}")
+        self.panel_tech.set_badge("完成" if fail == 0 else "有失败项",
+                                  "ok" if fail == 0 else "warn")
+        if freed:
+            self.panel_tech.push(f"释放空间 {freed}")
+
+        sols = solutions.collect(data.get("rows", []))
+        if data.get("protected"):
+            sols.append(solutions.for_protected(int(data["protected"]),
+                                                data.get("safe_pack", "")))
+        self.solbox.set_solutions([s.to_dict() for s in sols])
+
+        deep = bool(self._pending_bundle)
+        dlg = ResidualDialog(self, deep=deep,
+                             title="残余项目检查" + ("（含扫盘）" if deep else ""))
+        dlg.exec()
+        self._after_cleanup(data, dlg)
+
+    def _after_cleanup(self, data: dict, dlg: ResidualDialog):
+        rows = list(data.get("rows", []))
+        extra = dlg.cleanup_data or {}
+        rows.extend(extra.get("rows", []))
+        sols = solutions.collect(rows)
+        if sols:
+            self.solbox.set_solutions([s.to_dict() for s in sols])
+
+        pending = int(data.get("pending", 0)) + int(extra.get("pending", 0))
+        self._ask_reboot(pending)
+        if self._pending_bundle:
+            self._offer_boot_patrol()
+        self._refresh_installed()
+
+    def _ask_reboot(self, pending: int):
+        msg = "清扫已结束。"
+        if pending:
+            msg += f"\n其中 {pending} 项登记为重启后删除。"
+        msg += "\n\n现在重启吗？选“是”会在 20 秒后重启，期间可在命令提示符执行"
+        msg += "\nshutdown /a 撤销。"
+        ret = QMessageBox.question(
+            self, "是否重启",
+            msg,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if ret != QMessageBox.StandardButton.Yes:
             return
-        try:
-            if not QSystemTrayIcon.isSystemTrayAvailable():
-                self.log("系统托盘不可用，关闭窗口将直接退出", "warn")
+        ok, text = system_actions.schedule_reboot(20)
+        if ok:
+            QMessageBox.information(
+                self, "已安排重启",
+                f"{text}。\n要撤销：Win+R 输入 cmd，执行 shutdown /a。")
+        else:
+            QMessageBox.warning(self, "无法安排重启", text)
+
+    def _offer_boot_patrol(self):
+        if bootguard.is_enabled():
+            return
+        ret = QMessageBox.question(
+            self, "登记开机巡检",
+            "下次登录时在右下角弹出巡检小窗，复查残留。\n"
+            "小窗可随时关闭，结果必须你确认才清理，不会自动重启。\n"
+            "要现在登记吗？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if ret != QMessageBox.StandardButton.Yes:
+            return
+        ok, text = bootguard.enable()
+        self._refresh_boot_labels()
+        if ok:
+            QMessageBox.information(self, "已登记开机巡检", text)
+        else:
+            QMessageBox.warning(self, "登记失败", text)
+
+    # ------------------------------------------------------------ 巡检
+    def _toggle_boot(self, checked: bool):
+        if self._busy:
+            return
+        if checked:
+            ret = QMessageBox.question(
+                self, "开启开机巡检",
+                "登录后会在右下角出现巡检小窗，344×176，带扫描动图。\n"
+                "小窗有关闭按钮，删除项需要你确认，不会自动重启。继续？",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes)
+            if ret != QMessageBox.StandardButton.Yes:
+                self.cb_boot.blockSignals(True)
+                self.cb_boot.setChecked(False)
+                self.cb_boot.blockSignals(False)
                 return
-            self.tray = TrayController(self)
-            self.tray.show_requested.connect(self._restore_window)
-            self.tray.scan_requested.connect(self._tray_scan)
-            self.tray.patrol_requested.connect(self._start_patrol)
-            self.tray.boot_toggle_requested.connect(self._toggle_boot_patrol)
-            self.tray.update_requested.connect(lambda: self._check_updates(False))
-            self.tray.quit_requested.connect(self.quit_app)
-            self.tray.start()
-            self.tray.set_boot_state(bootguard.is_enabled())
-            self.log("托盘常驻已启用：关闭窗口会最小化到右下角托盘", "info")
-        except Exception as exc:
-            self.tray = None
-            self.log(f"托盘初始化失败：{exc}", "warn")
-        self._refresh_boot_badge()
+            ok, text = bootguard.enable()
+        else:
+            ok, text = bootguard.disable()
+        self._refresh_boot_labels()
+        if not ok:
+            QMessageBox.warning(self, "设置未生效", text)
+        else:
+            self.panel_tech.push(text)
+
+    def _refresh_boot_labels(self):
+        try:
+            enabled = bootguard.is_enabled()
+        except Exception:
+            enabled = False
+        self.cb_boot.blockSignals(True)
+        self.cb_boot.setChecked(enabled)
+        self.cb_boot.blockSignals(False)
+        text = "开机巡检：已开启" if enabled else "开机巡检：未开启"
+        self.lb_patrol.setText(text)
+        self.lb_boot.setText(bootguard.state_text() +
+                             "（计划任务优先，失败退回注册表启动项）")
+        if self._tray:
+            self._tray.set_boot_state(enabled)
+
+    def _start_patrol(self):
+        if self._patrol is not None:
+            self._patrol.close()
+        self._patrol = PatrolWindow(self, auto_start=True)
+        self._patrol.destroyed.connect(lambda _=None: self._refresh_installed())
+        self._patrol.show_at_corner()
+
+    # ------------------------------------------------------------ 托盘与更新
+    def _init_tray(self):
+        try:
+            self._tray = TrayController(self)
+        except Exception:
+            self._tray = None
+            return
+        self._tray.show_requested.connect(self._restore_window)
+        self._tray.scan_requested.connect(self._refresh_installed)
+        self._tray.patrol_requested.connect(self._start_patrol)
+        self._tray.boot_toggle_requested.connect(self._toggle_boot)
+        self._tray.update_requested.connect(lambda: self._check_updates(False))
+        self._tray.quit_requested.connect(self.quit_app)
+        try:
+            if self._tray.available():
+                self._tray.start()
+        except Exception:
+            pass
 
     def _restore_window(self):
         self.showNormal()
+        self.show()
         self.raise_()
         self.activateWindow()
 
-    def _tray_scan(self):
-        self._restore_window()
-        if self.busy:
-            self._notify("任务进行中", "当前还有任务在执行，完成后再扫描。")
-            return
-        self.start_scan()
-
-    def _notify(self, title: str, message: str):
-        if self.tray and self.tray.available():
-            self.tray.notify(title, message)
-
-    # ------------------------------------------------------------ 开机巡检
-    def _refresh_boot_badge(self):
-        on = bootguard.is_enabled()
-        self.badge_boot.setText("巡检：开" if on else "巡检：关")
-        self.badge_boot.setProperty("on", "true" if on else "false")
-        self.badge_boot.setProperty("warn", "false" if on else "true")
-        self.badge_boot.style().unpolish(self.badge_boot)
-        self.badge_boot.style().polish(self.badge_boot)
-        if self.tray:
-            self.tray.set_boot_state(on)
-
-    def _on_boot_badge_clicked(self, _event):
-        self._toggle_boot_patrol(not bootguard.is_enabled())
-
-    def _toggle_boot_patrol(self, enabled: bool):
-        """启动项只由这个开关写入，写之前把边界讲清楚。"""
-        if enabled and not bootguard.is_enabled():
-            ret = QMessageBox.question(
-                self, "开启开机巡检",
-                "开启后，下次开机会在右下角自动弹出巡检小窗，扫描全部 360 目录：\n\n"
-                "· 窗口一直可见，带 ✕ 关闭，不会藏在后台；\n"
-                "· 找到项目后仍要你点“立即清理”并二次确认才会删；\n"
-                "· 删除完成后才问你要不要重启，不会自动重启；\n"
-                "· 随时可在本界面或托盘菜单里关掉这一项，不留后台服务。\n\n"
-                "确定登记到下次开机启动吗？",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No,
-            )
-            if ret != QMessageBox.Yes:
-                if self.tray:
-                    self.tray.set_boot_state(False)
-                self._refresh_boot_badge()
-                return
-
-        ok, msg = bootguard.sync_state(bool(enabled))
-        if not ok:
-            QMessageBox.warning(self, "开机巡检设置失败", msg)
-            self._refresh_boot_badge()
-            return
-        self.log(msg, "ok" if enabled else "info")
-        self.status_label.setText(msg)
-        self._refresh_boot_badge()
-        if self.tray and enabled:
-            self.tray.notify("开机巡检已开启", "下次开机会在右下角自动巡检 360 残留。")
-
-    def _start_patrol(self):
-        """从托盘或界面手动拉起巡检小窗（不写注册表）。"""
-        if getattr(self, "patrol", None) is None:
-            self.patrol = PatrolWindow(self, auto_start=True)
-        self.patrol.show_at_corner()
-
-    def _offer_boot_patrol(self):
-        """清理完成后问一次要不要登记开机巡检，拒绝后本轮不再重复问。"""
-        if bootguard.is_enabled() or self.settings.value("boot_offer_asked", "false") == "true":
-            return
-        self.settings.setValue("boot_offer_asked", "true")
-        ret = QMessageBox.question(
-            self, "下次开机自动复查？",
-            "这次清理已经完成。要不要登记一次开机巡检？\n\n"
-            "下次开机时右下角会弹出小窗，扫描各个 360 目录和散落残留；\n"
-            "窗口可见、可关闭，删除前仍需你确认，也不会自动重启。\n\n"
-            "登记后随时可以在顶栏“巡检”或托盘菜单里关掉。",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
-        if ret == QMessageBox.Yes:
-            self._toggle_boot_patrol(True)
+    def _minimize_to_tray(self):
+        if self._tray and self._tray.available():
+            self.hide()
+            self._tray.notify_minimized()
         else:
-            self.log("用户未开启开机巡检", "info")
-
-    def _ask_reboot(self, ok: int, fail: int, pending: int) -> bool:
-        """删除后询问是否重启；只有用户点“是”才安排重启。"""
-        if ok == 0 and pending == 0:
-            return False
-        if pending or fail:
-            text = (f"清理完成：成功 {ok} 项，失败 {fail} 项，"
-                    f"{pending} 项已登记到重启后删除。\n\n"
-                    "现在重启电脑完成收尾吗？")
-        else:
-            text = f"清理完成：成功 {ok} 项。\n\n建议重启一次释放被占用的文件，现在重启吗？"
-        ret = QMessageBox.question(
-            self, "是否重启电脑",
-            text + "\n\n选择“是”后有 20 秒倒计时，期间可执行 shutdown /a 取消。",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
-        if ret != QMessageBox.Yes:
-            self.log("用户选择稍后重启", "info")
-            return False
-        ok_sched, msg = system_actions.schedule_reboot(20)
-        if ok_sched:
-            QMessageBox.information(self, "已安排重启",
-                                    "系统将在 20 秒后重启。\n取消命令：shutdown /a")
-            self.log(msg, "warn")
-            return True
-        QMessageBox.warning(self, "重启失败", f"无法安排重启：{msg}\n请手动重启电脑。")
-        return False
-
-    def _auto_check_update(self):
-        try:
-            last = float(self.settings.value("last_update_check", 0) or 0)
-        except Exception:
-            last = 0
-        if time.time() - last < 86400:
-            return
-        self._check_updates(True)
+            self.showMinimized()
 
     def _check_updates(self, silent: bool = False):
-        if self.check_worker and self.check_worker.isRunning():
-            if not silent:
-                self.status_label.setText("正在检查更新…")
+        if self._upd and self._upd.isRunning():
             return
-        self.btn_update.setEnabled(False)
-        self.btn_update.setText("检查中…")
-        self.status_label.setText("正在检查更新…")
-        self.check_worker = updater.CheckWorker(self)
-        self.check_worker.done.connect(lambda d: self._on_update_checked(d, silent))
-        self.check_worker.start()
+        self._upd = updater.CheckWorker(self)
+        self._upd.done.connect(lambda data: self._on_update_checked(data, silent))
+        self._upd.start()
+        if not silent:
+            self.panel_tech.push("正在检查更新…")
 
     def _on_update_checked(self, data: dict, silent: bool):
-        self.btn_update.setEnabled(True)
-        self.btn_update.setText("检查更新")
-        err = data.get("error")
-        if err:
-            self.status_label.setText("检查更新失败（可稍后重试）")
-            self.log(f"检查更新失败：{err}", "warn")
+        if data.get("error"):
             if not silent:
-                QMessageBox.warning(
-                    self, "检查更新失败",
-                    f"无法连接 GitHub：{err}\n\n"
-                    f"可以稍后重试，或手动访问：\n{updater.RELEASE_PAGE}")
+                QMessageBox.warning(self, "检查更新失败", data["error"])
             return
-
-        self.settings.setValue("last_update_check", time.time())
         release = data.get("release") or {}
-        tag = release.get("tag", "")
         if not data.get("has_update"):
-            self.status_label.setText(f"已是最新版本 v{APP_VERSION}")
-            self.log(f"检查更新：当前 v{APP_VERSION} 已是最新", "info")
             if not silent:
-                QMessageBox.information(
-                    self, "已是最新版本",
-                    f"当前版本 v{APP_VERSION} 已是最新，无需更新。")
+                QMessageBox.information(self, "已是最新版本",
+                                       f"当前 v{APP_VERSION} 就是最新版。")
             return
-
-        self.pending_release = release
-        self.btn_update.setText(f"有新版本 {tag}")
-        self.btn_update.setObjectName("UpdateHot")
-        self.btn_update.style().unpolish(self.btn_update)
-        self.btn_update.style().polish(self.btn_update)
-        self.log(f"发现新版本 {tag}（当前 v{APP_VERSION}）", "ok")
-        self.status_label.setText(f"发现新版本 {tag}，点击“有新版本”查看")
-        self._notify("发现新版本", f"{tag} 已发布，点击主界面“有新版本”可下载安装。")
-        if not self.busy:
-            self._show_update_dialog()
-
-    def _show_update_dialog(self):
-        if not self.pending_release:
-            return
-        dlg = UpdateDialog(self.pending_release, self)
-        dlg.install_requested.connect(self._finish_update_install)
+        self._release = release
+        dlg = UpdateDialog(release, self)
+        dlg.install_requested.connect(self.quit_app)
         dlg.exec()
 
-    def _finish_update_install(self):
-        """更新安装前的收尾：停掉后台任务，隐藏托盘，再退出让脚本替换文件。"""
-        self.force_quit = True
-        if self.worker and self.worker.isRunning():
-            self.worker.request_stop()
-            self.worker.wait(3000)
-        if self.tray:
-            self.tray.icon.hide()
-        QTimer.singleShot(0, QApplication.quit)
-
-    def _on_update_clicked(self):
-        if self.pending_release:
-            self._show_update_dialog()
-            return
-        self._check_updates(False)
+    def _open_log_dir(self):
+        try:
+            os.makedirs(LOG_DIR, exist_ok=True)
+            if os.name == "nt":
+                os.startfile(LOG_DIR)
+            else:
+                import subprocess
+                subprocess.Popen(["xdg-open", LOG_DIR])
+        except Exception as exc:
+            QMessageBox.warning(self, "打不开日志目录", str(exc))
 
     def quit_app(self):
-        self.force_quit = True
-        if self.worker and self.worker.isRunning():
-            # 从托盘退出时窗口可能是隐藏的，确认框要先有可见窗口
-            self._restore_window()
-            ret = QMessageBox.question(
-                self, "任务仍在进行",
-                "扫描或清理还没有结束，现在退出会中止剩余步骤，"
-                "可能留下删了一半的项目。\n\n确定要退出吗？",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No,
-            )
-            if ret != QMessageBox.Yes:
-                self.force_quit = False
-                return
-            self.worker.request_stop()
-            self.worker.wait(2500)
-            self.log("用户中止任务并退出程序", "warn")
-        if self.tray:
-            self.tray.icon.hide()
+        for worker in (self._worker, self._detect, self._upd):
+            try:
+                if worker and worker.isRunning():
+                    if hasattr(worker, "request_stop"):
+                        worker.request_stop()
+                    worker.wait(2500)
+            except Exception:
+                pass
+        if self._tray:
+            self._tray.icon.hide()
         QApplication.quit()
 
-    # ------------------------------------------------------------ 扫描
-    def start_scan(self):
-        if self.busy:
-            return
-        self._busy(True, "正在扫描…")
-        self.console.log("开始扫描 360 系列应用与清理项", "title")
-        self.console.set_progress(0, "准备扫描")
-
-        self.worker = Worker(Worker.MODE_SCAN, parent=self)
-        self.worker.log.connect(lambda m: self.log(m))
-        self.worker.progress.connect(self._on_progress)
-        self.worker.result.connect(self._on_scan_result)
-        self.worker.start()
-
-    def _on_progress(self, pct: int, text: str):
-        self.console.set_progress(pct, text)
-        self.status_label.setText(text)
-
-    def _on_scan_result(self, data: dict):
-        self.items = data.get("items", [])
-        self.status = data.get("status", {})
-        self.summary = data.get("summary", {})
-        self.items_by_app = {}
-        for item in self.items:
-            self.items_by_app.setdefault(item.app_key, []).append(item)
-
-        installed_count = 0
-        for app in APPS:
-            key = app["key"]
-            st = self.status.get(key, {})
-            installed = bool(st.get("installed"))
-            note = st.get("note", "")
-            items = self.items_by_app.get(key, [])
-            size = sum(i.size for i in items)
-            self.rows[key].set_state(installed, note, len(items),
-                                     cleanup.human_size(size))
-            # 安装目录存在时优先用程序自己的 exe/ico
-            self.rows[key].set_real_icon(installed)
-            if installed:
-                installed_count += 1
-
-        total_size = sum(i.size for i in self.items)
-        self.card_installed.set_value(str(installed_count))
-        self.card_items.set_value(str(len(self.items)))
-        self.card_size.set_value(cleanup.human_size(total_size))
-        self._clear_selection()
-        self.console.set_stats(ok=0, fail=0, freed="0 B")
-        self.console.set_progress(100, "扫描完成")
-        self._busy(False, f"扫描完成：{installed_count} 款应用，{len(self.items)} 个可清理项")
-        self.log(f"扫描完成：检测到 {installed_count} 款应用，"
-                 f"{len(self.items)} 个可清理项，合计 {cleanup.human_size(total_size)}", "ok")
-        QTimer.singleShot(0, self._update_more_hint)
-        if self.tray:
-            self.tray.set_tooltip(
-                f"{APP_NAME} {APP_VERSION} · {installed_count} 款 360 应用待处理")
-        self._notify("扫描完成",
-                     f"检测到 {installed_count} 款 360 应用，{len(self.items)} 个可清理项。")
-
-    def _start_deep_scan(self):
-        if self.busy:
-            return
-        self._busy(True, "深度扫描中…")
-        self.console.log("开始深度扫描：进程 / 服务 / 目录 / 注册表 / 启动项 / DLL / 磁盘残留",
-                         "title")
-        self.console.set_progress(0, "准备深度扫描")
-        if self.hud is None:
-            self.hud = ScanHud("深度扫描 · 全盘残留", self)
-            self.hud.cancel_clicked.connect(self._cancel_deep_scan)
-        self.hud.update_state("正在准备扫描…", 0)
-        self.hud.show_at_corner()
-
-        self.worker = Worker(Worker.MODE_RESIDUAL, {"deep": True}, parent=self)
-        self.worker.log.connect(lambda m: self.log(m))
-        self.worker.progress.connect(self._on_deep_progress)
-        self.worker.result.connect(self._on_deep_result)
-        self.worker.start()
-
-    def _on_deep_progress(self, pct: int, text: str):
-        self.console.set_progress(pct, text)
-        self.status_label.setText(text)
-        if self.hud is not None and self.hud.isVisible():
-            self.hud.update_state(text or "扫描中…", pct)
-
-    def _cancel_deep_scan(self):
-        if self.worker and self.worker.isRunning():
-            self.worker.request_stop()
-            if self.hud:
-                self.hud.update_state("正在停止…", self.hud.bar.value())
-
-    def _on_deep_result(self, data: dict):
-        if self.hud is not None:
-            self.hud.hide()
-        items = data.get("items", [])
-        self._busy(False, f"深度扫描完成：{len(items)} 项待处理")
-        self.log(f"深度扫描完成：共 {len(items)} 项残留", "ok")
-        dlg = ResidualDialog(self, deep=False, title="深度扫描结果", items=items)
-        dlg.finished_cleanup.connect(self._on_residual_cleanup)
-        dlg.finished.connect(self._after_residual_dialog)
-        dlg.show()
-
-    # ------------------------------------------------------------ 卸载
-    def _on_uninstall_clicked(self):
-        apps = self._selected_apps()
-        if not apps:
-            return
-        names = "、".join(a["name"] for a in apps)
-        total_items = sum(len(self.items_by_app.get(a["key"], [])) for a in apps)
-        ret = QMessageBox.question(
-            self, "确认卸载",
-            f"将卸载 {len(apps)} 款应用：\n{names}\n\n"
-            f"共 {total_items} 个清理项（进程、服务、目录、注册表、计划任务、快捷方式）。\n"
-            "不调用官方卸载程序，直接逐项拆除。注册表删除前会自动备份。\n\n"
-            "确定继续吗？",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
-        if ret != QMessageBox.Yes:
-            return
-
-        items_by_app = {a["key"]: self.items_by_app.get(a["key"], []) for a in apps}
-        self._busy(True, "正在卸载…")
-        self.console.log(f"开始卸载 {len(apps)} 款应用（{total_items} 个清理项）", "title")
-        self.console.set_progress(0, "准备卸载")
-
-        self.worker = Worker(Worker.MODE_UNINSTALL,
-                             {"apps": apps, "items_by_app": items_by_app}, parent=self)
-        self.worker.log.connect(self._on_worker_log)
-        self.worker.progress.connect(self._on_progress)
-        self.worker.result.connect(self._on_uninstall_result)
-        self.worker.start()
-
-    def _on_worker_log(self, message: str):
-        level = "ok" if message.startswith("✔") else ("err" if message.startswith("✘") else "info")
-        self.log(message, level)
-
-    def _on_uninstall_result(self, data: dict):
-        ok = data.get("ok", 0)
-        fail = data.get("fail", 0)
-        freed = data.get("freed_text", "0 B")
-        pending = data.get("pending", 0)
-        self.console.set_stats(ok=ok, fail=fail, freed=freed)
-        self.console.set_progress(100, "卸载流程结束")
-        stage = (f"卸载完成：成功 {ok} 项，失败 {fail} 项（失败原因见控制台）"
-                 if fail else f"卸载完成：全部 {ok} 项已处理，释放 {freed}")
-        if pending:
-            stage += f" · {pending} 项已登记重启后删除"
-        self._busy(False, stage)
-        self._clear_selection()
-        self.log(f"卸载完成：成功 {ok} 项，失败 {fail} 项，释放 {freed}"
-                 + (f"，{pending} 项待重启后删除" if pending else ""),
-                 "warn" if fail else "ok")
-        self._notify("卸载完成",
-                     f"成功 {ok} 项，失败 {fail} 项，释放 {freed}"
-                     + (f"，{pending} 项待重启后删除" if pending else ""))
-
-        # 卸载完成 → 进入残余扫描小窗
-        QTimer.singleShot(320, lambda: self._open_residual_dialog(
-            "卸载完成 · 残余项目检查"))
-
-    def _open_residual_dialog(self, title: str = "残余项目检查"):
-        self._last_cleanup = None
-        dlg = ResidualDialog(self, deep=True, title=title)
-        dlg.finished_cleanup.connect(self._on_residual_cleanup)
-        # 无论“删除”还是“跳过”，关闭后都重扫一次，避免主界面停在旧状态
-        dlg.finished.connect(self._after_residual_dialog)
-        dlg.show()
-        QTimer.singleShot(80, dlg.start_scan)
-
-    def _after_residual_dialog(self, _code: int = 0):
-        """残余小窗关闭后再问重启与开机巡检，避免提示被模态窗口盖住。"""
-        QTimer.singleShot(0, self.start_scan)
-        if not self._last_cleanup:
-            return
-        QTimer.singleShot(200, self._post_cleanup_flow)
-
-    def _post_cleanup_flow(self):
-        result = self._last_cleanup
-        self._last_cleanup = None
-        if not result:
-            return
-        rebooted = self._ask_reboot(result.get("ok", 0), result.get("fail", 0),
-                                    result.get("pending", 0))
-        if not rebooted:
-            self._offer_boot_patrol()
-
-    def _on_residual_cleanup(self, data: dict):
-        ok = data.get("ok", 0)
-        fail = data.get("fail", 0)
-        pending = data.get("pending", 0)
-        freed = data.get("freed_text", "0 B")
-        self.console.set_stats(ok=ok, fail=fail, freed=freed)
-        self.log(f"残余清理：成功 {ok} 项，失败 {fail} 项，释放 {freed}"
-                 + (f"，{pending} 项待重启后删除" if pending else ""),
-                 "warn" if fail else "ok")
-        self.status_label.setText(
-            f"残余清理完成，释放 {freed}" + (f"，{fail} 项未删掉（见小窗）" if fail else "")
-            + (f"，{pending} 项待重启后删除" if pending else "")
-            + " · 建议重启电脑")
-        self._notify("残余清理完成",
-                     f"成功 {ok} 项，失败 {fail} 项，释放 {freed}"
-                     + (f"，{pending} 项待重启后删除" if pending else ""))
-        if ok or pending:
-            self._last_cleanup = {"ok": ok, "fail": fail, "pending": pending}
-
-    # ------------------------------------------------------------ 一键清除
-    def _on_promo_clicked(self):
-        if self.busy:
-            return
-        installed = self._installed_apps()
-        if not installed:
-            if not self.status:
-                QMessageBox.information(self, "请稍候",
-                                        "正在扫描系统，扫描完成后即可一键清除。")
-            else:
-                QMessageBox.information(self, "无需清理",
-                                        "未检测到 360 系列应用与残留，系统很干净。")
-            return
-        # 宣传区直接进确认清单，不再让用户多点一次按钮
-        for a in installed:
-            row = self.rows[a["key"]]
-            if row.cb.isEnabled():
-                row.set_checked(True)
-        self._update_action_state()
-        self.log(f"一键清除：已自动勾选 {len(installed)} 款 360 应用", "info")
-        self._on_oneclick_clicked()
-
-    def _on_oneclick_clicked(self):
-        if self.busy:
-            return
-        targets = [a for a in APPS if self.status.get(a["key"], {}).get("installed")]
-        items_by_app = {a["key"]: self.items_by_app.get(a["key"], []) for a in targets}
-        common = [i for i in self.items if not i.app_key]
-
-        total = sum(len(v) for v in items_by_app.values()) + len(common)
-        if total == 0:
-            QMessageBox.information(self, "无需清理", "未发现可清除的 360 相关项目。")
-            return
-
-        kinds: dict[str, int] = {}
-        for group in list(items_by_app.values()) + [common]:
-            for i in group:
-                kinds[i.kind_label] = kinds.get(i.kind_label, 0) + 1
-        detail = "，".join(f"{k} {v} 项" for k, v in kinds.items())
-
-        preview = []
-        for group in list(items_by_app.values()) + [common]:
-            for i in group[:3]:
-                preview.append(f"· [{i.kind_label}] {i.label}")
-        preview_text = "\n".join(preview[:10])
-
-        ret = QMessageBox.warning(
-            self, "360 一键清除 · 确认清单",
-            f"即将处理 {len(targets)} 款 360 应用的全部相关项目：\n\n"
-            f"共 {total} 项（{detail}）\n\n"
-            f"部分项目预览：\n{preview_text}\n"
-            + ("……\n" if total > 10 else "")
-            + "\n执行方式：结束进程 → 删除服务 → 清理计划任务 → 强力删除目录 → "
-              "备份并清理注册表 → 删除快捷方式。\n"
-              "无权访问的目录会先结束占用它的 360 进程、重置 ACL 并接管所有权后重删；"
-              "仍被系统锁住的会登记到下次开机时由系统删除。\n\n"
-              "此操作不可恢复（注册表会自动备份到日志目录）。确定执行吗？",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
-        if ret != QMessageBox.Yes:
-            self.log("用户取消了一键清除", "warn")
-            return
-
-        for a in targets:
-            self.rows[a["key"]].set_checked(True)
-
-        self._busy(True, "正在执行 360 一键清除…")
-        self.console.log(f"360 一键清除：{len(targets)} 款应用，共 {total} 项", "title")
-        self.console.set_progress(0, "准备清除")
-
-        self.worker = Worker(Worker.MODE_UNINSTALL,
-                             {"apps": targets, "items_by_app": items_by_app,
-                              "extra_items": common}, parent=self)
-        self.worker.log.connect(self._on_worker_log)
-        self.worker.progress.connect(self._on_progress)
-        self.worker.result.connect(self._on_oneclick_result)
-        self.worker.start()
-
-    def _on_oneclick_result(self, data: dict):
-        ok = data.get("ok", 0)
-        fail = data.get("fail", 0)
-        freed = data.get("freed_text", "0 B")
-        pending = data.get("pending", 0)
-        self.console.set_stats(ok=ok, fail=fail, freed=freed)
-        self.console.set_progress(100, "一键清除完成")
-        stage = (f"一键清除完成：成功 {ok} 项，失败 {fail} 项（失败原因见控制台）"
-                 if fail else f"一键清除完成：全部 {ok} 项已处理，释放 {freed}")
-        if pending:
-            stage += f" · {pending} 项已登记重启后删除"
-        self._busy(False, stage)
-        self._clear_selection()
-        self.log(f"一键清除完成：成功 {ok} 项，失败 {fail} 项，释放 {freed}"
-                 + (f"，{pending} 项待重启后删除" if pending else ""),
-                 "warn" if fail else "ok")
-        self._notify("360 一键清除完成",
-                     f"成功 {ok} 项，失败 {fail} 项，释放 {freed}"
-                     + (f"，{pending} 项待重启后删除" if pending else ""))
-        QTimer.singleShot(320, lambda: self._open_residual_dialog(
-            "一键清除完成 · 残余项目检查"))
-
-    # ------------------------------------------------------------ 预览演示
+    # ------------------------------------------------------------ 演示
     def _populate_demo(self):
-        """预览模式：填充演示数据，不触发真实扫描。"""
-        demo = {
-            "360safe": (True, "正在运行", 12, 553_648_128),
-            "360sd": (True, "已安装", 8, 226_492_416),
-            "360se": (True, "已安装", 6, 1_288_490_188),
-            "360zip": (True, "已安装", 3, 25_792_512),
-            "360drvmgr": (True, "已安装", 4, 92_602_368),
-            "360softmgr": (True, "已安装", 3, 164_288_512),
-            "360chromex": (True, "已安装", 5, 335_712_256),
-            "360yunpan": (True, "已安装", 2, 68_157_440),
-        }
-        installed = 0
-        total_items = 0
-        total_size = 0
-        for app in APPS:
-            key = app["key"]
-            if key in demo:
-                _inst, note, count, size = demo[key]
-                self.rows[key].set_state(True, note, count, cleanup.human_size(size))
-                installed += 1
-                total_items += count
-                total_size += size
-            else:
-                self.rows[key].set_state(False, "", 0, "0 B")
+        demo = [
+            ("360safe", ["进程 · 360tray.exe", "目录 · C:\\Program Files (x86)\\360\\360Safe",
+                         "服务 · 360rp"], 1_612_345_678, True, "360 安全卫士"),
+            ("360se", ["目录 · C:\\Program Files (x86)\\360\\360se6",
+                       "注册表 · HKCU\\Software\\360se6"], 486_221_000, True, "360 安全浏览器"),
+            ("360zip", ["目录 · C:\\Program Files (x86)\\360\\360zip"], 132_908_000,
+             False, "360 压缩"),
+            ("360aioffice", ["目录 · C:\\Program Files (x86)\\360\\360AIOffice",
+                             "服务 · 360aioffice"], 318_774_000, False, "360 AI 办公"),
+            ("xiaoniao", ["目录 · C:\\Users\\Administrator\\AppData\\Local\\XiaoNiao",
+                          "进程 · xiaoniao.exe"], 742_113_000, True, "小鸟壁纸"),
+        ]
+        apps = {a["key"]: a for a in APPS}
+        found = []
+        for key, evidence, size, running, _name in demo:
+            app = apps.get(key)
+            if not app:
+                continue
+            dirs = [e.split(" · ", 1)[1] for e in evidence if e.startswith("目录")]
+            found.append(Detected(key=key, name=app["name"], desc=app["desc"],
+                                  app=app, evidence=list(evidence), dirs=dirs,
+                                  size=size, running=running))
+        self._on_detected(found)
+        self.panel_tech.set_stage("演示状态：等待开始")
+        self.panel_tech.set_tech("技术：进程树终止 · taskkill /T /F")
+        self.solbox.set_solutions([{
+            "title": "被 360 内核驱动拦截",
+            "steps": ["先退出 360 托盘并关闭自我保护，再执行清理",
+                      "已有残留驱动就进安全模式清理，正常模式下删不掉是预期行为"],
+        }])
+        self.lb_stat.setText("5 款 · 3.2 GB · 3 款正在运行")
 
-        self.card_installed.set_value(str(installed))
-        self.card_items.set_value(str(total_items))
-        self.card_size.set_value(cleanup.human_size(total_size))
-        for app in APPS:
-            self.rows[app["key"]].set_real_icon(app["key"] in demo)
-        self.status = {a["key"]: {"installed": a["key"] in demo} for a in APPS}
-        self._refresh_promo()
-
-        self.console.log("开始扫描 360 系列应用与清理项", "title")
-        self.console.log("读取卸载注册表：WOW6432Node\\...\\Uninstall")
-        self.console.log("注册表卸载项命中 8 个 360 相关条目")
-        self.console.log("扫描安装目录：Program Files (x86)\\360")
-        self.console.log("进程检测：360tray.exe / 360sd.exe 正在运行", "warn")
-        self.console.log("服务检测：360rp、360SoftMgrSvc 待处理")
-        self.console.log("计划任务：360SafeUpdate 等 2 项")
-        self.console.log("快捷方式：桌面 3 项、开始菜单 5 项")
-        self.console.log("保护探测：ZhuDongFangYu 驱动运行中", "warn")
-        self.console.log("2 个注册表键转为离线清理包", "warn")
-        self.console.log(f"扫描完成：{installed} 款应用，"
-                         f"{total_items} 个可清理项，合计 {cleanup.human_size(total_size)}", "ok")
-        self.console.set_progress(100, "扫描完成")
-        self.console.set_stats(ok=26, fail=1, freed="2.1 GB")
-        self.status_label.setText(f"扫描完成：{installed} 款应用，{total_items} 个可清理项")
-        QTimer.singleShot(0, self._update_more_hint)
-
-    # ------------------------------------------------------------ 免责
-    def _show_disclaimer_if_needed(self):
-        if env_flag(ENV_NO_DISCLAIMER):
-            return
-        if self.settings.value("disclaimer_accepted", "false") == "true":
-            return
-        text = (
-            f"欢迎使用 {APP_NAME}。\n\n"
-            "本工具用于卸载 360 系列软件并清理残留，执行前请注意：\n\n"
-            "1. 会结束相关进程、停止并删除相关服务；\n"
-            "2. 会删除安装目录与残留文件，部分操作需要接管文件所有权"
-            "（takeown / icacls）；\n"
-            "3. 会备份后删除相关注册表项；\n"
-            "4. 删除操作不可恢复，请确认已不再需要这些软件与数据；\n"
-            "5. 本工具与奇虎 360 无任何关联，为第三方独立工具。\n\n"
-            "所有清理项都会先列清单、经你确认后才执行。"
-        )
-        box = QMessageBox(self)
-        box.setWindowTitle("使用前确认")
-        box.setIcon(QMessageBox.Information)
-        box.setText(text)
-        box.setStandardButtons(QMessageBox.Ok | QMessageBox.Cancel)
-        box.button(QMessageBox.Ok).setText("我已了解，继续")
-        box.button(QMessageBox.Cancel).setText("退出")
-        if box.exec() != QMessageBox.Ok:
-            self.quit_app()
-            return
-        self.settings.setValue("disclaimer_accepted", "true")
-
-    # ------------------------------------------------------------ 关闭
+    # ------------------------------------------------------------ 收尾
     def closeEvent(self, event: QCloseEvent):
-        # 有托盘时：关闭 = 最小化到托盘，任务继续在后台跑
-        if not self.force_quit and self.tray and self.tray.available():
-            self.hide()
-            if self.worker and self.worker.isRunning():
-                self._notify("任务仍在后台执行",
-                             "窗口已隐藏，任务会继续完成，结束后托盘会提示结果。")
-            else:
-                self.tray.notify_minimized()
+        if self._tray and self._tray.available():
             event.ignore()
+            self.hide()
+            self._tray.notify_minimized()
             return
-
-        if self.worker and self.worker.isRunning():
+        if self._worker and self._worker.isRunning():
             ret = QMessageBox.question(
-                self, "任务仍在进行",
-                "扫描或清理还没有结束，现在关闭会中止剩余步骤，"
-                "可能留下删了一半的项目。\n\n建议等它跑完再关闭。确定要退出吗？",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No,
-            )
-            if ret != QMessageBox.Yes:
+                self, "仍在清理", "后台还在清理，现在退出会中断。确定退出？",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No)
+            if ret != QMessageBox.StandardButton.Yes:
                 event.ignore()
                 return
-            self.worker.request_stop()
-            self.worker.wait(2500)
-            self.log("用户中止任务并退出程序", "warn")
-        if self.tray:
-            self.tray.icon.hide()
-        event.accept()
+        super().closeEvent(event)
