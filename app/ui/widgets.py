@@ -1,517 +1,539 @@
-"""通用界面组件：应用行、读数、控制台、宣传条
+"""界面组件：线性图标、导航项、模式卡、应用行、技术面板、推广位、解决方案
 
-布局常量 COL_* 由主窗口表头复用，保证表头与数据行的列宽严格对齐。
+所有图标都用 QPainter 现画，不依赖 svg 插件，任意 DPI 下都清晰。
 """
 
-import time
-
-from PySide6.QtCore import QEvent, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QLinearGradient, QPainter
+from PySide6.QtCore import QPointF, QRectF, QSize, Qt, Signal
+from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap
 from PySide6.QtWidgets import (QCheckBox, QFrame, QHBoxLayout, QLabel,
-                               QPlainTextEdit, QProgressBar, QPushButton,
-                               QSizePolicy, QVBoxLayout, QWidget)
+                               QProgressBar, QPushButton, QVBoxLayout, QWidget)
 
-from .. import icon_provider
-from ..constants import APP_NAME
+from .. import constants, icon_provider
 from . import theme
 
-COL_CHECK = 15
-COL_BADGE = 30
-COL_STATE = 84
-COL_COUNT = 88
-COL_SIZE = 88
-ROW_MARGIN_H = 12
+# 统一的图标视觉：1.6px 描边，圆头线帽，无填充色块
+GLYPH_NAMES = {
+    "clean", "bundle", "info", "radar", "shield", "update", "close", "min",
+    "retry", "ai", "bird", "check", "clock", "lock",
+}
 
 
-def _label(text: str, obj: str, parent=None) -> QLabel:
-    lb = QLabel(text, parent)
-    lb.setObjectName(obj)
-    return lb
+def paint_glyph(p: QPainter, name: str, rect: QRectF, color: str, w: float = 1.6):
+    p.save()
+    pen = QPen(QColor(color))
+    pen.setWidthF(w)
+    pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+    pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+    p.setPen(pen)
+    p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    x, y, s = rect.x(), rect.y(), min(rect.width(), rect.height())
+    u = s / 24.0
+
+    if name == "clean":
+        p.drawLine(QPointF(x + 13 * u, y + 4 * u), QPointF(x + 17 * u, y + 8 * u))
+        path = QPainterPath()
+        path.moveTo(x + 12 * u, y + 9 * u)
+        path.lineTo(x + 15 * u, y + 12 * u)
+        path.lineTo(x + 8 * u, y + 19 * u)
+        path.lineTo(x + 5 * u, y + 16 * u)
+        path.closeSubpath()
+        p.drawPath(path)
+        p.drawLine(QPointF(x + 5 * u, y + 20 * u), QPointF(x + 8 * u, y + 17 * u))
+    elif name == "bundle":
+        for cx, cy in ((6, 18), (12, 12), (18, 6)):
+            p.drawEllipse(QPointF(x + cx * u, y + cy * u), 2.2 * u, 2.2 * u)
+        p.drawLine(QPointF(x + 7.6 * u, y + 16.4 * u), QPointF(x + 10.4 * u, y + 13.6 * u))
+        p.drawLine(QPointF(x + 13.6 * u, y + 10.4 * u), QPointF(x + 16.4 * u, y + 7.6 * u))
+    elif name == "info":
+        p.drawEllipse(QRectF(x + 3 * u, y + 3 * u, 18 * u, 18 * u))
+        p.drawLine(QPointF(x + 12 * u, y + 11 * u), QPointF(x + 12 * u, y + 17 * u))
+        p.drawEllipse(QPointF(x + 12 * u, y + 7.6 * u), 0.9 * u, 0.9 * u)
+    elif name == "radar":
+        p.drawEllipse(QRectF(x + 3 * u, y + 3 * u, 18 * u, 18 * u))
+        p.drawEllipse(QRectF(x + 7.6 * u, y + 7.6 * u, 8.8 * u, 8.8 * u))
+        p.drawLine(QPointF(x + 12 * u, y + 12 * u), QPointF(x + 18 * u, y + 6 * u))
+        p.drawEllipse(QPointF(x + 16.2 * u, y + 7.8 * u), 1.1 * u, 1.1 * u)
+    elif name == "shield":
+        path = QPainterPath()
+        path.moveTo(x + 12 * u, y + 3 * u)
+        path.lineTo(x + 19 * u, y + 6 * u)
+        path.lineTo(x + 19 * u, y + 12 * u)
+        path.cubicTo(x + 19 * u, y + 17 * u, x + 15.5 * u, y + 20 * u,
+                     x + 12 * u, y + 21.5 * u)
+        path.cubicTo(x + 8.5 * u, y + 20 * u, x + 5 * u, y + 17 * u,
+                     x + 5 * u, y + 12 * u)
+        path.lineTo(x + 5 * u, y + 6 * u)
+        path.closeSubpath()
+        p.drawPath(path)
+        p.drawLine(QPointF(x + 9 * u, y + 12 * u), QPointF(x + 11.4 * u, y + 14.4 * u))
+        p.drawLine(QPointF(x + 11.4 * u, y + 14.4 * u), QPointF(x + 15.4 * u, y + 9.6 * u))
+    elif name == "update":
+        p.drawEllipse(QRectF(x + 4 * u, y + 4 * u, 16 * u, 16 * u))
+        p.drawLine(QPointF(x + 12 * u, y + 7.4 * u), QPointF(x + 12 * u, y + 12 * u))
+        p.drawLine(QPointF(x + 12 * u, y + 12 * u), QPointF(x + 15.4 * u, y + 14 * u))
+    elif name == "clock":
+        p.drawEllipse(QRectF(x + 3.4 * u, y + 3.4 * u, 17.2 * u, 17.2 * u))
+        p.drawLine(QPointF(x + 12 * u, y + 7.4 * u), QPointF(x + 12 * u, y + 12 * u))
+        p.drawLine(QPointF(x + 12 * u, y + 12 * u), QPointF(x + 15 * u, y + 14.2 * u))
+    elif name == "retry":
+        path = QPainterPath()
+        path.arcMoveTo(QRectF(x + 4 * u, y + 4 * u, 16 * u, 16 * u), 40)
+        path.arcTo(QRectF(x + 4 * u, y + 4 * u, 16 * u, 16 * u), 40, 280)
+        p.drawPath(path)
+        p.drawLine(QPointF(x + 14.6 * u, y + 3.4 * u), QPointF(x + 19.4 * u, y + 6.2 * u))
+        p.drawLine(QPointF(x + 14.6 * u, y + 3.4 * u), QPointF(x + 13.2 * u, y + 7.4 * u))
+    elif name == "ai":
+        p.drawRoundedRect(QRectF(x + 4 * u, y + 6 * u, 16 * u, 12 * u), 2.4 * u, 2.4 * u)
+        p.drawEllipse(QPointF(x + 9.4 * u, y + 12 * u), 1.1 * u, 1.1 * u)
+        p.drawEllipse(QPointF(x + 14.6 * u, y + 12 * u), 1.1 * u, 1.1 * u)
+        p.drawLine(QPointF(x + 12 * u, y + 6 * u), QPointF(x + 12 * u, y + 3.4 * u))
+        p.drawLine(QPointF(x + 4 * u, y + 16 * u), QPointF(x + 4 * u, y + 18.4 * u))
+        p.drawLine(QPointF(x + 20 * u, y + 16 * u), QPointF(x + 20 * u, y + 18.4 * u))
+    elif name == "bird":
+        path = QPainterPath()
+        path.moveTo(x + 4 * u, y + 14 * u)
+        path.cubicTo(x + 8 * u, y + 7 * u, x + 14 * u, y + 6 * u, x + 20 * u, y + 9 * u)
+        path.cubicTo(x + 17 * u, y + 15 * u, x + 11 * u, y + 18.4 * u, x + 5 * u, y + 16.4 * u)
+        p.drawPath(path)
+        p.drawEllipse(QPointF(x + 15.4 * u, y + 10 * u), 0.9 * u, 0.9 * u)
+    elif name == "check":
+        p.drawLine(QPointF(x + 6 * u, y + 12.4 * u), QPointF(x + 10.2 * u, y + 16.8 * u))
+        p.drawLine(QPointF(x + 10.2 * u, y + 16.8 * u), QPointF(x + 18 * u, y + 7.6 * u))
+    elif name == "close":
+        p.drawLine(QPointF(x + 7 * u, y + 7 * u), QPointF(x + 17 * u, y + 17 * u))
+        p.drawLine(QPointF(x + 17 * u, y + 7 * u), QPointF(x + 7 * u, y + 17 * u))
+    elif name == "min":
+        p.drawLine(QPointF(x + 6 * u, y + 12 * u), QPointF(x + 18 * u, y + 12 * u))
+    elif name == "lock":
+        p.drawRoundedRect(QRectF(x + 6 * u, y + 11 * u, 12 * u, 9 * u), 1.6 * u, 1.6 * u)
+        path = QPainterPath()
+        path.arcMoveTo(QRectF(x + 8 * u, y + 5 * u, 8 * u, 10 * u), 0)
+        path.arcTo(QRectF(x + 8 * u, y + 5 * u, 8 * u, 10 * u), 0, 180)
+        p.drawPath(path)
+    p.restore()
 
 
-class AppRow(QFrame):
-    """单个 360 应用行：勾选框 + 徽章 + 名称描述 + 状态 + 项目数 + 占用。"""
+def glyph_pixmap(name: str, size: int = 16, color: str = "#5B6470") -> QPixmap:
+    dpr = 2
+    pm = QPixmap(size * dpr, size * dpr)
+    pm.setDevicePixelRatio(dpr)
+    pm.fill(Qt.GlobalColor.transparent)
+    p = QPainter(pm)
+    paint_glyph(p, name, QRectF(0, 0, size, size), color, 1.6)
+    p.end()
+    return pm
+
+
+def glyph_icon(name: str, size: int = 16, color: str = "#5B6470") -> QIcon:
+    return QIcon(glyph_pixmap(name, size, color))
+
+
+class IconGlyph(QWidget):
+    """按名字画一个线性图标，居中。"""
+
+    def __init__(self, name: str, size: int = 16, color: str = "#5B6470", parent=None):
+        super().__init__(parent)
+        self.name = name
+        self.color = color
+        self.setFixedSize(size, size)
+
+    def set_color(self, color: str):
+        self.color = color
+        self.update()
+
+    def paintEvent(self, _event):
+        p = QPainter(self)
+        paint_glyph(p, self.name, QRectF(0, 0, self.width(), self.height()), self.color, 1.6)
+        p.end()
+
+
+class NavItem(QPushButton):
+    def __init__(self, text: str, glyph: str, parent=None):
+        super().__init__(text, parent)
+        self.setObjectName("NavItem")
+        self.setCheckable(True)
+        self._glyph = glyph
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setIcon(glyph_icon(glyph, 16, theme.COLORS["text_sub"]))
+        self.setIconSize(QSize(16, 16))
+        self.toggled.connect(self._recolor)
+
+    def _recolor(self, checked: bool):
+        color = theme.COLORS["accent_dark"] if checked else theme.COLORS["text_sub"]
+        self.setIcon(glyph_icon(self._glyph, 16, color))
+
+
+class ModeCard(QFrame):
+    """二选一的模式卡：单选圆点 + 标题 + 一行说明。"""
+
+    clicked = Signal(str)
+
+    def __init__(self, key: str, title: str, line: str, badge: str = "", parent=None):
+        super().__init__(parent)
+        self.key = key
+        self._active = False
+        self.setObjectName("ModeCard")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setProperty("active", False)
+        self.setMinimumHeight(62)
+
+        row = QHBoxLayout(self)
+        row.setContentsMargins(12, 10, 12, 10)
+        row.setSpacing(10)
+
+        text = QVBoxLayout()
+        text.setSpacing(1)
+        head = QHBoxLayout()
+        head.setSpacing(6)
+        self.title = QLabel(title)
+        self.title.setObjectName("TileName")
+        head.addWidget(self.title)
+        if badge:
+            tag = QLabel(badge)
+            tag.setObjectName("Badge")
+            head.addWidget(tag)
+        head.addStretch(1)
+        self.line = QLabel(line)
+        self.line.setObjectName("TileMeta")
+        text.addLayout(head)
+        text.addWidget(self.line)
+        row.addLayout(text, 1)
+
+        self._radio_painted = _RadioDot(self)
+        row.addWidget(self._radio_painted)
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit(self.key)
+        super().mousePressEvent(event)
+
+    def set_active(self, on: bool):
+        self._active = bool(on)
+        self.setProperty("active", bool(on))
+        self._radio_painted.set_active(bool(on))
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self.update()
+
+
+class _RadioDot(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(16, 16)
+        self._on = False
+
+    def set_active(self, on: bool):
+        self._on = bool(on)
+        self.update()
+
+    def paintEvent(self, _event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        rect = QRectF(1, 1, 14, 14)
+        if self._on:
+            p.setPen(QPen(QColor(theme.COLORS["accent"]), 1.2))
+            p.setBrush(QColor(theme.COLORS["accent"]))
+            p.drawEllipse(rect)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(QColor("#FFFFFF"))
+            p.drawEllipse(QRectF(4.6, 4.6, 6.8, 6.8))
+        else:
+            p.setPen(QPen(QColor("#C9D0D8"), 1.2))
+            p.setBrush(QColor("#FFFFFF"))
+            p.drawEllipse(rect)
+        p.end()
+
+
+class AppTile(QFrame):
+    """一行应用：勾选 + 图标 + 名称/证据 + 体积。"""
 
     toggled = Signal(str, bool)
 
-    def __init__(self, index: int, app: dict, parent=None):
+    def __init__(self, found, parent=None):
         super().__init__(parent)
-        self.setObjectName("AppRow")
-        self.app = app
-        self.setProperty("checked", "false")
-        self.setProperty("installed", "false")
-        self.setProperty("dim", "false")
-        self.setFixedHeight(48)
-        self.setCursor(Qt.PointingHandCursor)
-        self._index = index
+        self.key = found.key
+        self.found = found
+        self.setObjectName("AppTile")
+        self.setProperty("checked", False)
+        self.setMinimumHeight(52)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        lay = QHBoxLayout(self)
-        lay.setContentsMargins(ROW_MARGIN_H, 2, ROW_MARGIN_H, 2)
-        lay.setSpacing(8)
+        row = QHBoxLayout(self)
+        row.setContentsMargins(10, 6, 12, 6)
+        row.setSpacing(10)
 
-        self.cb = QCheckBox()
-        self.cb.setCursor(Qt.PointingHandCursor)
-        self.cb.setFixedWidth(COL_CHECK)
-        self.cb.toggled.connect(self._on_toggle)
-        self.cb.setChecked(False)
-        self.cb.setEnabled(False)  # 扫描确认已安装后才可勾选
-        lay.addWidget(self.cb)
-        self.cb.setToolTip("勾选后可卸载该应用，也可以直接点击整行")
+        self.box = QCheckBox(self)
+        self.box.setChecked(False)
+        self.box.toggled.connect(self._on_box)
+        row.addWidget(self.box)
 
-        badge = QLabel()
-        badge.setPixmap(icon_provider.badge_icon(index, self._initial(app["name"]), COL_BADGE)
-                        .pixmap(COL_BADGE, COL_BADGE))
-        badge.setFixedSize(COL_BADGE, COL_BADGE)
-        self.badge = badge
-        lay.addWidget(badge)
-
-        text_box = QVBoxLayout()
-        text_box.setSpacing(0)
-        text_box.setContentsMargins(0, 0, 0, 0)
-        name = _label(app["name"], "AppName")
-        desc = _label(app["desc"], "AppDesc")
-        text_box.addWidget(name)
-        text_box.addWidget(desc)
-        lay.addLayout(text_box, 1)
-
-        self.count_label = _label("", "AppCount")
-        self.count_label.setFixedWidth(COL_COUNT)
-        self.count_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        lay.addWidget(self.count_label)
-
-        self.state_label = _label("未检测到", "AppState")
-        self.state_label.setProperty("state", "clean")
-        self.state_label.setFixedWidth(COL_STATE)
-        self.state_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        lay.addWidget(self.state_label)
-
-        self.size_label = _label("", "AppSize")
-        self.size_label.setFixedWidth(COL_SIZE)
-        self.size_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        lay.addWidget(self.size_label)
-
-    @staticmethod
-    def _initial(name: str) -> str:
-        for ch in name:
-            if ch in " \t\u3000":
-                continue
-            if ch.isdigit():
-                continue
-            if ch.isascii():
-                return ch.upper()
-            return ch
-        return "3"
-
-    def _on_toggle(self, checked: bool):
-        self.setProperty("checked", "true" if checked else "false")
-        self.style().unpolish(self)
-        self.style().polish(self)
-        self.toggled.emit(self.app["key"], checked)
-
-    def set_state(self, installed: bool, note: str, item_count: int, size_text: str):
-        self.setProperty("installed", "true" if installed else "false")
-        if installed:
-            state = "running" if note == "正在运行" else "installed"
-            note = note or "已安装"
-            self.state_label.setText(note)
-            self.state_label.setToolTip(note)
-            self.state_label.setProperty("state", state)
-            self.count_label.setText(f"{item_count} 项" if item_count else "—")
-            self.size_label.setText(size_text if item_count else "—")
-            self.cb.setEnabled(True)
+        self.icon = QLabel(self)
+        self.icon.setFixedSize(28, 28)
+        qicon = icon_provider.installed_icon(found.app)
+        if qicon.isNull():
+            pm = glyph_pixmap("shield", 22, theme.COLORS["accent"])
         else:
-            self.state_label.setText("未检测到")
-            self.state_label.setToolTip("未在注册表或安装目录发现该组件的安装信息")
-            self.state_label.setProperty("state", "clean")
-            self.count_label.setText("—")
-            self.size_label.setText("—")
-            self.setProperty("dim", "true")
-            self.cb.setEnabled(False)
-            self.cb.setChecked(False)
-        self.state_label.style().unpolish(self.state_label)
-        self.state_label.style().polish(self.state_label)
+            pm = qicon.pixmap(28, 28)
+        self.icon.setPixmap(pm)
+        row.addWidget(self.icon)
+
+        text = QVBoxLayout()
+        text.setSpacing(1)
+        head = QHBoxLayout()
+        head.setSpacing(6)
+        name = QLabel(found.name)
+        name.setObjectName("TileName")
+        head.addWidget(name)
+        if found.app.get("tag"):
+            tag = QLabel(found.app["tag"])
+            tag.setObjectName("TileTag")
+            head.addWidget(tag)
+        if found.running:
+            run = QLabel("运行中")
+            run.setObjectName("BadgeWarn")
+            head.addWidget(run)
+        head.addStretch(1)
+        text.addLayout(head)
+
+        meta = QLabel(found.detail_text(2))
+        meta.setObjectName("TileMeta")
+        meta.setToolTip("\n".join(found.evidence))
+        text.addWidget(meta)
+        row.addLayout(text, 1)
+
+        size = QLabel(found.size_text)
+        size.setObjectName("TileSize")
+        size.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        size.setFixedWidth(64)
+        row.addWidget(size)
+
+    def _on_box(self, checked: bool):
+        self.setProperty("checked", bool(checked))
         self.style().unpolish(self)
         self.style().polish(self)
-
-    def set_real_icon(self, on: bool):
-        """扫描到安装目录后换成程序真实图标；没拿到就保留字母徽章。"""
-        if not on:
-            self.badge.setPixmap(icon_provider.badge_icon(
-                self._index, self._initial(self.app["name"]), COL_BADGE)
-                .pixmap(COL_BADGE, COL_BADGE))
-            return
-        if not icon_provider.set_real_icon(self.badge, self.app, self._index, COL_BADGE):
-            self.badge.setPixmap(icon_provider.badge_icon(
-                self._index, self._initial(self.app["name"]), COL_BADGE)
-                .pixmap(COL_BADGE, COL_BADGE))
-
-    def is_checked(self) -> bool:
-        return self.cb.isChecked()
-
-    def set_checked(self, value: bool):
-        self.cb.setChecked(value)
-
-    def set_interactive(self, on: bool):
-        """任务执行期间锁住整行，避免误勾选导致状态与执行不一致。"""
-        self.cb.setEnabled(on and self.property("installed") != "false")
-        self.setCursor(Qt.PointingHandCursor if on else Qt.ArrowCursor)
+        self.toggled.emit(self.key, bool(checked))
 
     def mousePressEvent(self, event):
-        # 整行可点：只点小方框对用户来说太窄，容易点空
-        if event.button() == Qt.LeftButton and self.cb.isEnabled():
-            self.cb.setChecked(not self.cb.isChecked())
-            event.accept()
-            return
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.box.setChecked(not self.box.isChecked())
         super().mousePressEvent(event)
 
+    def is_checked(self) -> bool:
+        return self.box.isChecked()
 
-def table_header() -> QWidget:
-    """与 AppRow 列宽对齐的表头。"""
-    head = QWidget()
-    head.setObjectName("TableHead")
-    head.setFixedHeight(26)
-    lay = QHBoxLayout(head)
-    lay.setContentsMargins(ROW_MARGIN_H + 2, 0, ROW_MARGIN_H, 6)
-    lay.setSpacing(8)
-
-    spacer = QLabel("")
-    spacer.setFixedWidth(COL_CHECK)
-    lay.addWidget(spacer)
-
-    spacer2 = QLabel("")
-    spacer2.setFixedWidth(COL_BADGE)
-    lay.addWidget(spacer2)
-
-    app_head = _label("应用 / 组件", "HeadCell")
-    lay.addWidget(app_head, 1)
-
-    count_head = _label("项目", "HeadCell")
-    count_head.setFixedWidth(COL_COUNT)
-    count_head.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-    lay.addWidget(count_head)
-
-    state_head = _label("状态", "HeadCell")
-    state_head.setFixedWidth(COL_STATE)
-    state_head.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-    lay.addWidget(state_head)
-
-    size_head = _label("占用", "HeadCell")
-    size_head.setFixedWidth(COL_SIZE)
-    size_head.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-    lay.addWidget(size_head)
-    return head
+    def set_checked(self, value: bool):
+        self.box.setChecked(bool(value))
 
 
-class StatCard(QFrame):
-    """读数：无底色、无圆角，只靠左侧一条竖线与相邻读数分开。"""
-
-    def __init__(self, label: str, value: str = "0", parent=None):
-        super().__init__(parent)
-        self.setObjectName("StatCard")
-        self.setFixedHeight(52)
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(14, 4, 8, 4)
-        lay.setSpacing(0)
-        self.value_label = _label(value, "StatValue")
-        self.name_label = _label(label, "StatLabel")
-        lay.addWidget(self.value_label)
-        lay.addWidget(self.name_label)
-
-    def set_value(self, text: str):
-        self.value_label.setText(text)
-
-
-class ConsoleWidget(QFrame):
-    """右侧控制台：日志流 + 进度 + 关键指标。"""
+class TechPanel(QFrame):
+    """技术面板：当前正在跑的技术 + 最近几步，替代原来的控制台刷屏。"""
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setObjectName("ConsolePanel")
+        self.setObjectName("TechPanel")
+        self._lines: list[str] = []
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(18, 14, 18, 14)
-        lay.setSpacing(9)
+        lay.setContentsMargins(12, 10, 12, 10)
+        lay.setSpacing(5)
 
         head = QHBoxLayout()
-        head.setSpacing(8)
-        mark = QLabel("")
-        mark.setFixedSize(3, 14)
-        mark.setStyleSheet(f"background:{theme.COLORS['accent']};")
-        title = _label("CONSOLE", "ConsoleTitle")
-        hint = _label("实时日志 / 执行进度", "ConsoleHint")
-        hint.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        self.btn_clear = QPushButton("清屏")
-        self.btn_clear.setObjectName("ConsoleGhost")
-        self.btn_clear.setCursor(Qt.PointingHandCursor)
-        head.addWidget(mark)
-        head.addWidget(title)
-        head.addWidget(hint)
+        head.setSpacing(6)
+        cap = QLabel("技术面板")
+        cap.setObjectName("TechTitle")
+        head.addWidget(cap)
         head.addStretch(1)
-        head.addWidget(self.btn_clear)
+        self.badge = QLabel("待命")
+        self.badge.setObjectName("Badge")
+        head.addWidget(self.badge)
         lay.addLayout(head)
 
-        self.console = QPlainTextEdit()
-        self.console.setObjectName("Console")
-        self.console.setReadOnly(True)
-        self.console.setMaximumBlockCount(4000)
-        self.console.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.console.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.console.verticalScrollBar().setObjectName("ConsoleScroll")
-        mono = QFont("Cascadia Mono")
-        mono.setStyleHint(QFont.Monospace)
-        mono.setPointSize(8)
-        self.console.setFont(mono)
-        self.console.setPlaceholderText("READY · 选择左侧操作，或等待扫描结果")
-        pal = self.console.palette()
-        pal.setColor(pal.ColorRole.PlaceholderText, QColor(theme.COLORS["console_dim"]))
-        self.console.setPalette(pal)
-        lay.addWidget(self.console, 1)
+        self.stage = QLabel("尚未开始")
+        self.stage.setObjectName("TechStage")
+        self.stage.setWordWrap(True)
+        lay.addWidget(self.stage)
 
         self.bar = QProgressBar()
-        self.bar.setObjectName("ConsoleBar")
         self.bar.setRange(0, 100)
         self.bar.setValue(0)
         self.bar.setTextVisible(False)
-        self.bar.setFixedHeight(3)
+        self.bar.setFixedHeight(4)
         lay.addWidget(self.bar)
 
-        stage_row = QHBoxLayout()
-        stage_row.setSpacing(8)
-        self.stage = _label("待命", "ConsoleHint")
-        self.pct = _label("0%", "ConsoleHint")
-        self.pct.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        self.pct.setFixedWidth(46)
-        stage_row.addWidget(self.stage, 1)
-        stage_row.addWidget(self.pct)
-        lay.addLayout(stage_row)
+        self.tech = QLabel("")
+        self.tech.setObjectName("Mono")
+        self.tech.setWordWrap(True)
+        lay.addWidget(self.tech)
 
-        stats = QHBoxLayout()
-        stats.setSpacing(0)
-        self.stat_ok = self._mini_stat("已清理", "0")
-        self.stat_fail = self._mini_stat("失败", "0")
-        self.stat_freed = self._mini_stat("释放空间", "0 B")
-        stats.addWidget(self.stat_ok[0], 1)
-        stats.addWidget(self.stat_fail[0], 1)
-        stats.addWidget(self.stat_freed[0], 1)
-        lay.addLayout(stats)
+        box = QVBoxLayout()
+        box.setSpacing(2)
+        self.line_labels: list[QLabel] = []
+        for _ in range(4):
+            lb = QLabel("")
+            lb.setObjectName("TechLine")
+            lb.setVisible(False)
+            box.addWidget(lb)
+            self.line_labels.append(lb)
+        lay.addLayout(box)
+        lay.addStretch(1)
 
-        self.btn_clear.clicked.connect(self.console.clear)
+    def reset(self, stage: str = "等待开始"):
+        self._lines.clear()
+        self.stage.setText(stage)
+        self.bar.setValue(0)
+        self.tech.setText("")
+        for lb in self.line_labels:
+            lb.setText("")
+            lb.setVisible(False)
+        self.set_badge("待命", "ok")
 
-    def _mini_stat(self, name: str, value: str):
-        card = QFrame()
-        card.setObjectName("ConsoleStatCard")
-        card.setFixedHeight(52)
-        v = QVBoxLayout(card)
-        v.setContentsMargins(0, 6, 0, 2)
-        v.setSpacing(0)
-        val = _label(value, "ConsoleStatValue")
-        lab = _label(name, "ConsoleStatLabel")
-        v.addWidget(val)
-        v.addWidget(lab)
-        return card, val
-
-    def log(self, message: str, level: str = "info"):
-        c = theme.COLORS
-        color = {"info": c["console_text"], "ok": c["success"], "warn": c["warn"],
-                 "err": c["danger"], "title": c["accent"]}.get(level, c["console_text"])
-        ts = time.strftime("%H:%M:%S")
-        safe = (message.replace("&", "&amp;").replace("<", "&lt;")
-                .replace(">", "&gt;"))
-        self.console.appendHtml(
-            f'<span style="color:{c["console_dim"]}">{ts}&nbsp;&nbsp;</span>'
-            f'<span style="color:{color}">{safe}</span>'
-        )
-        sb = self.console.verticalScrollBar()
-        sb.setValue(sb.maximum())
+    def set_badge(self, text: str, level: str = "ok"):
+        self.badge.setText(text)
+        self.badge.setObjectName("BadgeWarn" if level == "warn" else "Badge")
+        self.badge.style().unpolish(self.badge)
+        self.badge.style().polish(self.badge)
 
     def set_stage(self, text: str):
         self.stage.setText(text)
 
-    def set_progress(self, pct: int, text: str = ""):
-        value = max(0, min(100, pct))
-        self.bar.setValue(value)
-        self.pct.setText(f"{value}%")
-        if text:
-            self.stage.setText(text)
+    def set_progress(self, pct: int):
+        self.bar.setValue(max(0, min(100, int(pct)))
 
-    def set_stats(self, ok=None, fail=None, freed=None):
-        if ok is not None:
-            self.stat_ok[1].setText(str(ok))
-        if fail is not None:
-            self.stat_fail[1].setText(str(fail))
-        if freed is not None:
-            self.stat_freed[1].setText(freed)
+    def set_tech(self, text: str):
+        self.tech.setText(text)
+
+    def push(self, text: str, keep: int = 4):
+        if not text:
+            return
+        self._lines.insert(0, text)
+        self._lines = self._lines[:keep]
+        for i, lb in enumerate(self.line_labels):
+            if i < len(self._lines):
+                lb.setText("· " + self._lines[i])
+                lb.setVisible(True)
+            else:
+                lb.setVisible(False)
 
 
-class PromoCard(QFrame):
-    """底部宣传条：360 全家桶一键全部移除。"""
+class AdSlot(QFrame):
+    """推广位：公告新支持卸载的产品，点一下跳到对应条目。"""
 
-    action = Signal()
+    clicked = Signal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setObjectName("PromoCard")
-        self.setMinimumHeight(92)
-        self.setMaximumHeight(104)
-        lay = QHBoxLayout(self)
-        lay.setContentsMargins(18, 10, 18, 10)
-        lay.setSpacing(16)
+        self.setObjectName("AdSlot")
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(12, 10, 12, 10)
+        lay.setSpacing(6)
 
-        text_box = QVBoxLayout()
-        text_box.setSpacing(2)
-        kicker = _label("360 全家桶 · 彻底清除", "PromoKicker")
-        title = _label("360 一键全部移除", "PromoTitle")
-        desc = _label("进程 / 服务 / 目录 / 注册表 / 启动项 / DLL 与驱动 / 快捷方式；"
-                      "无权访问先接管所有权强力删除，清完可登记开机巡检复查", "PromoDesc")
-        desc.setWordWrap(True)
-        text_box.addWidget(kicker)
-        text_box.addWidget(title)
-        text_box.addWidget(desc)
-        lay.addLayout(text_box, 1)
+        head = QHBoxLayout()
+        cap = QLabel("推广位")
+        cap.setObjectName("TechTitle")
+        head.addWidget(cap)
+        head.addStretch(1)
+        note = QLabel("广告")
+        note.setObjectName("AdFooter")
+        head.addWidget(note)
+        lay.addLayout(head)
 
-        self.btn = QPushButton("彻底清除")
-        self.btn.setObjectName("PromoBtn")
-        self.btn.setCursor(Qt.PointingHandCursor)
-        self.btn.setMinimumWidth(112)
-        self.btn.setMinimumHeight(34)
-        self.btn.clicked.connect(self.action.emit)
-        lay.addWidget(self.btn, 0, Qt.AlignVCenter)
+        for item in constants.PROMO_ITEMS:
+            lay.addWidget(self._item(item))
+        foot = QLabel("本位置用于公告新增支持，不接第三方投放")
+        foot.setObjectName("AdFooter")
+        foot.setWordWrap(True)
+        lay.addWidget(foot)
 
-    def set_button_state(self, enabled: bool, text: str = "", tooltip: str = ""):
-        self.btn.setEnabled(enabled)
-        self.btn.setCursor(Qt.PointingHandCursor if enabled else Qt.ArrowCursor)
-        if text:
-            self.btn.setText(text)
-        if tooltip:
-            self.btn.setToolTip(tooltip)
+    def _item(self, item: dict) -> QWidget:
+        w = QFrame(self)
+        w.setCursor(Qt.CursorShape.PointingHandCursor)
+        row = QHBoxLayout(w)
+        row.setContentsMargins(0, 5, 0, 5)
+        row.setSpacing(8)
+        row.addWidget(IconGlyph(item.get("glyph", "shield"), 18,
+                                theme.COLORS["accent"], w))
+        text = QVBoxLayout()
+        text.setSpacing(1)
+        head = QHBoxLayout()
+        head.setSpacing(6)
+        name = QLabel(item["name"])
+        name.setObjectName("AdTitle")
+        head.addWidget(name)
+        tag = QLabel(item.get("tag", "新"))
+        tag.setObjectName("AdTag")
+        head.addWidget(tag)
+        head.addStretch(1)
+        text.addLayout(head)
+        line = QLabel(item["line"])
+        line.setObjectName("AdLine")
+        text.addWidget(line)
+        row.addLayout(text, 1)
+
+        def _click(_e, key=item["key"]):
+            self.clicked.emit(key)
+
+        w.mousePressEvent = _click
+        return w
+
+
+class SolutionBox(QFrame):
+    """解决方案：失败项的下一步怎么做，最多显示三条。"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("SolutionBox")
+        self.setVisible(False)
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(12, 10, 12, 10)
+        lay.setSpacing(4)
+        head = QHBoxLayout()
+        cap = QLabel("解决方案")
+        cap.setObjectName("TechTitle")
+        head.addWidget(cap)
+        head.addStretch(1)
+        lay.addLayout(head)
+        self.body = QVBoxLayout()
+        self.body.setSpacing(6)
+        lay.addLayout(self.body)
+
+    def clear(self):
+        while self.body.count():
+            item = self.body.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        self.setVisible(False)
+
+    def set_solutions(self, solutions: list):
+        self.clear()
+        if not solutions:
+            return
+        for sol in solutions[:3]:
+            title = QLabel(sol.get("title", "未清理干净"))
+            title.setObjectName("SolTitle")
+            self.body.addWidget(title)
+            for step in sol.get("steps", [])[:3]:
+                lb = QLabel("· " + step)
+                lb.setObjectName("SolStep")
+                lb.setWordWrap(True)
+                self.body.addWidget(lb)
+        self.setVisible(True)
 
 
 class EmptyState(QWidget):
-    def __init__(self, text: str = "暂无数据", parent=None):
+    def __init__(self, title: str, hint: str = "", parent=None):
         super().__init__(parent)
         lay = QVBoxLayout(self)
-        lay.setAlignment(Qt.AlignCenter)
-        lb = QLabel(text)
-        lb.setAlignment(Qt.AlignCenter)
-        lb.setStyleSheet(f"color:{theme.COLORS['text_muted']}; font-size:9pt;")
+        lay.setContentsMargins(16, 28, 16, 28)
+        lay.setSpacing(6)
+        lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        g = IconGlyph("shield", 40, theme.COLORS["accent_line"], self)
+        lay.addWidget(g, 0, Qt.AlignmentFlag.AlignHCenter)
+        lb = QLabel(title)
+        lb.setObjectName("Empty")
+        lb.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lay.addWidget(lb)
-
-
-class BottomFade(QWidget):
-    """列表底部渐隐：让被截断的行淡出，而不是硬切一刀。"""
-
-    def __init__(self, target: QWidget, height: int = 26, parent=None):
-        super().__init__(parent or target)
-        self._target = target
-        self._h = height
-        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-        target.installEventFilter(self)
-        self._sync()
-
-    def _sync(self):
-        self.setGeometry(0, self._target.height() - self._h,
-                         self._target.width(), self._h)
-        self.raise_()
-
-    def eventFilter(self, obj, event):
-        if obj is self._target and event.type() == QEvent.Resize:
-            self._sync()
-        return False
-
-    def paintEvent(self, _event):
-        gradient = QLinearGradient(0, 0, 0, self.height())
-        base = QColor(theme.COLORS["bg"])
-        top = QColor(base)
-        top.setAlpha(0)
-        bottom = QColor(base)
-        bottom.setAlpha(235)
-        gradient.setColorAt(0.0, top)
-        gradient.setColorAt(1.0, bottom)
-        painter = QPainter(self)
-        painter.fillRect(self.rect(), gradient)
-
-
-class ScanHud(QFrame):
-    """右下角悬浮进度窗：无边框、置顶、贴着工作区右下角。
-
-    深度扫盘时用它显示进度，主窗口和残余检查窗口都能复用；
-    取消按钮只发信号，具体停止由调用方处理。
-    """
-
-    cancel_clicked = Signal()
-
-    def __init__(self, title: str = "深度扫描", parent=None):
-        super().__init__(None)
-        self._parent_window = parent
-        self.setObjectName("ScanHud")
-        self.setWindowFlags(Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
-        self.setAttribute(Qt.WA_ShowWithoutActivating, True)
-        self.setFixedWidth(320)
-        self.setFixedHeight(96)
-        self._build(title)
-
-    def _build(self, title: str):
-        root = QVBoxLayout(self)
-        root.setContentsMargins(14, 11, 12, 11)
-        root.setSpacing(6)
-
-        head = QHBoxLayout()
-        head.setSpacing(6)
-        self.title = QLabel(title)
-        self.title.setObjectName("HudTitle")
-        head.addWidget(self.title)
-        head.addStretch(1)
-        self.pct = QLabel("0%")
-        self.pct.setObjectName("HudPct")
-        head.addWidget(self.pct)
-        self.btn_close = QPushButton("✕")
-        self.btn_close.setObjectName("HudClose")
-        self.btn_close.setFixedSize(18, 18)
-        self.btn_close.setCursor(Qt.PointingHandCursor)
-        self.btn_close.clicked.connect(self.cancel_clicked.emit)
-        head.addWidget(self.btn_close)
-        root.addLayout(head)
-
-        self.text = QLabel("正在准备…")
-        self.text.setObjectName("HudText")
-        self.text.setWordWrap(False)
-        root.addWidget(self.text)
-
-        self.bar = QProgressBar()
-        self.bar.setObjectName("HudBar")
-        self.bar.setRange(0, 100)
-        self.bar.setValue(0)
-        self.bar.setFixedHeight(4)
-        self.bar.setTextVisible(False)
-        root.addWidget(self.bar)
-
-    # ------------------------------------------------------------------
-    def _target_rect(self):
-        screen = None
-        if self._parent_window is not None:
-            screen = self._parent_window.screen()
-        if screen is None:
-            from PySide6.QtWidgets import QApplication
-            screen = QApplication.primaryScreen()
-        if screen is None:
-            return None
-        return screen.availableGeometry()
-
-    def show_at_corner(self):
-        self.adjustSize()
-        geo = self._target_rect()
-        if geo is not None:
-            self.move(geo.right() - self.width() - 18,
-                      geo.bottom() - self.height() - 18)
-        self.show()
-        self.raise_()
-
-    def update_state(self, text: str, pct: int | None = None, detail: str = ""):
-        if pct is not None:
-            self.bar.setValue(max(0, min(100, pct)))
-            self.pct.setText(f"{max(0, min(100, pct))}%")
-        metrics = self.fontMetrics()
-        elided = metrics.elidedText(text, Qt.ElideRight, self.width() - 30)
-        self.text.setText(elided if not detail else f"{elided}  {detail}")
-
-    def set_title(self, title: str):
-        self.title.setText(title)
+        if hint:
+            h = QLabel(hint)
+            h.setObjectName("SectionHint")
+            h.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            h.setWordWrap(True)
+            lay.addWidget(h)
