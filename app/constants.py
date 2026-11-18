@@ -4,7 +4,7 @@ import os
 
 APP_NAME = "残留清理卫士"
 APP_NAME_EN = "ResidualCleaner"
-APP_VERSION = "1.2.9.261117"
+APP_VERSION = "1.3.0.261118"
 APP_TAGLINE = "Windows 深度卸载与残留清理"
 
 LOG_DIR = os.path.join(
@@ -60,6 +60,7 @@ DESKTOP = os.path.join(USERPROFILE, "Desktop") if USERPROFILE else ""
 #   tasks     计划任务名称关键词
 #   shortcuts 快捷方式关键词
 #   assist    是否为辅助/伴随组件（UI 显示"组件"）
+
 
 def _p(*parts) -> str:
     return os.path.join(*parts)
@@ -311,6 +312,37 @@ APPS = [
         "shortcuts": ["360儿童卫士"],
         "assist": True,
     },
+    {
+        "key": "360aioffice",
+        "name": "360 AI 办公",
+        "desc": "AI 写作、PPT 生成与云端文档组件",
+        "processes": ["360aioffice.exe", "360aiofficeupdate.exe",
+                      "360officeai.exe", "aioffice.exe", "wpsaihelper.exe"],
+        "services": ["360aioffice"],
+        "dirs": [_p(PF86, "360", "360AIOffice"), _p(PF, "360", "360AIOffice"),
+                 _p(PF86, "360AIOffice"), _p(LOCALAPPDATA, "360AIOffice"),
+                 _p(APPDATA, "360AIOffice")],
+        "regs": [r"HKLM\SOFTWARE\WOW6432Node\360AIOffice",
+                 r"HKCU\Software\360AIOffice"],
+        "tasks": ["360AI办公", "360 AI 办公"],
+        "shortcuts": ["360AI办公", "360 AI办公", "360 AI 办公"],
+        "tag": "新",
+    },
+    {
+        "key": "xiaoniao",
+        "name": "小鸟壁纸",
+        "desc": "动态壁纸引擎、图库缓存与开机自启组件",
+        "processes": ["xiaoniao.exe", "xiaoniaobizhi.exe", "xiaoniaowp.exe",
+                      "birdwallpaper.exe"],
+        "services": ["xiaoniao"],
+        "dirs": [_p(PF86, "XiaoNiao"), _p(PF, "XiaoNiao"),
+                 _p(PF86, "360", "XiaoNiao"), _p(LOCALAPPDATA, "XiaoNiao"),
+                 _p(APPDATA, "XiaoNiao"), _p(PROGRAMDATA, "XiaoNiao")],
+        "regs": [r"HKLM\SOFTWARE\WOW6432Node\XiaoNiao", r"HKCU\Software\XiaoNiao"],
+        "tasks": ["小鸟壁纸", "XiaoNiao"],
+        "shortcuts": ["小鸟壁纸"],
+        "tag": "新",
+    },
 ]
 
 # 360 自我保护相关驱动 / 服务关键词（强力删除前先尝试停止，避免文件被守护）
@@ -338,6 +370,10 @@ COMMON_DIRS = [
     _p(LOCALAPPDATA, "360ChromeX"),
     _p(LOCALAPPDATA, "360YunPan"),
     _p(LOCALAPPDATA, "360Wallpaper"),
+    _p(PF86, "360AIOffice"),
+    _p(LOCALAPPDATA, "360AIOffice"),
+    _p(PF86, "XiaoNiao"),
+    _p(LOCALAPPDATA, "XiaoNiao"),
 ]
 
 # 公共注册表根（扫描时按前缀匹配）
@@ -351,7 +387,8 @@ REG_KEYWORDS = ["360safe", "360sd", "360se", "360chrome", "360zip", "360drvmgr",
                 "360softmgr", "360yunpan", "360game", "360mobile", "360ys",
                 "360wallpaper", "qhsafe", "zhudongfangyu", "奇虎", "360安全",
                 "360safelite", "360aibrowser", "360kuai", "360desktop", "360seplus",
-                "360wifi", "360piaowang", "360kidsafe"]
+                "360wifi", "360piaowang", "360kidsafe", "360aioffice", "xiaoniao",
+                "小鸟壁纸"]
 
 UNINSTALL_KEYS = [
     r"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
@@ -460,3 +497,40 @@ KIND_LABELS = {
 
 KIND_ORDER = ["process", "service", "task", "startup", "dir", "file", "dll",
               "registry", "shortcut"]
+
+# ---------------------------------------------------------------- 界面模式
+MODE_SINGLE = "single"
+MODE_BUNDLE = "bundle"
+
+MODE_INFO = {
+    MODE_SINGLE: {
+        "title": "单项卸载",
+        "line": "只清掉勾选的那几款，不扫盘、不登记开机巡检",
+        "mine": False,
+    },
+    MODE_BUNDLE: {
+        "title": "一条龙 · 全家桶清除",
+        "line": "全部检测项一次拆完，随后深度扫盘、复查残留",
+        "mine": True,
+    },
+}
+
+# 一条龙用到的技术清单（也用于“关于”页展示，说明不是暴力删除）
+BUNDLE_TECH = [
+    ("进程树终止", "taskkill /T /F，先断开 360 的守护链再动文件"),
+    ("服务卸载", "sc stop + sc delete，服务句柄释放后才删目录"),
+    ("所有权接管", "SeTakeOwnershipPrivilege + Administrators FullControl"),
+    ("句柄释放", "RestartManager 查占用进程，逐个结束再重试"),
+    ("重启删除", "MoveFileEx(DELETE_ON_REBOOT) 登记，下次开机由系统删"),
+    ("开机巡检", "登录后小窗复查，结果必须你确认才清理"),
+]
+
+# 右侧推广位：新支持的卸载对象
+PROMO_ITEMS = [
+    {"key": "360aioffice", "name": "360 AI 办公", "line": "AI 写作 · PPT 生成 · 云端文档",
+     "tag": "新支持", "glyph": "ai"},
+    {"key": "xiaoniao", "name": "小鸟壁纸", "line": "动态壁纸 · 图库缓存 · 开机自启",
+     "tag": "新支持", "glyph": "bird"},
+]
+
+SUPPORT_HINT = "360 系 21 款 + 小鸟壁纸\n未装的不显示"
