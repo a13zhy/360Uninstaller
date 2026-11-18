@@ -21,6 +21,7 @@ def _attach_protected(data: dict, log) -> dict:
 class Worker(QThread):
     log = Signal(str)
     progress = Signal(int, str)
+    tech = Signal(str)
     result = Signal(dict)
 
     MODE_SCAN = "scan"
@@ -95,11 +96,26 @@ class Worker(QThread):
 
     def _do_uninstall(self):
         apps = self.payload.get("apps", [])
-        items_by_app = self.payload.get("items_by_app", {})
-        extra_items = self.payload.get("extra_items", [])
-        self.log.emit(f"开始卸载 {len(apps)} 款应用（不调用官方卸载器）")
+        items_by_app = dict(self.payload.get("items_by_app") or {})
+        extra_items = list(self.payload.get("extra_items") or [])
+        with_common = bool(self.payload.get("with_common", False))
+
+        scanner = Scanner()
+        if not items_by_app:
+            for idx, app in enumerate(apps, start=1):
+                self.progress.emit(int(idx * 12 / max(1, len(apps))),
+                                   f"准备清理项：{app['name']}")
+                items_by_app[app["key"]] = scanner.scan_app(app, with_size=True)
+        if with_common:
+            self.log.emit("一条龙：追加公共组件与启动项")
+            extra_items.extend(scanner.scan_common(with_size=True))
+
+        total = sum(len(v) for v in items_by_app.values()) + len(extra_items)
+        self.log.emit(f"开始卸载 {len(apps)} 款应用，共 {total} 个清理项（不调用官方卸载器）")
+        self.tech.emit("扫描与拆解清单：进程 / 服务 / 任务 / 目录 / 注册表逐类归集")
         engine = UninstallEngine(logger=self.log.emit, progress=self.progress.emit,
-                                 should_stop=self._should_stop)
+                                 should_stop=self._should_stop,
+                                 tech=lambda text: self.tech.emit(text))
         res = engine.uninstall_apps(apps, items_by_app, extra_items=extra_items)
         self.progress.emit(100, "卸载流程结束")
         data = res.to_dict()
@@ -109,6 +125,10 @@ class Worker(QThread):
     def _do_residual(self):
         deep = bool(self.payload.get("deep", True))
         self.log.emit("开始扫描残余项目" + ("（含深度扫盘）" if deep else ""))
+        if deep:
+            self.tech.emit("深度扫盘：os.walk 限定一级 360 目录 + Temp + 桌面下载")
+        else:
+            self.tech.emit("注册表复查：HKLM / HKCU 双视图 + WOW6432Node")
         scanner = Scanner()
         items = scanner.scan_residual(
             deep=deep,
@@ -127,6 +147,7 @@ class Worker(QThread):
     def _do_patrol(self):
         """开机巡检：扫描口径最宽，进度按百分比回传，供右下角小窗使用。"""
         self.log.emit("开机巡检：扫描全部 360 目录与散落残留")
+        self.tech.emit("巡检：目录枚举 + 注册表枚举 + 进程服务比对")
         scanner = Scanner()
         items = scanner.scan_patrol(
             progress=lambda msg, pct: self.progress.emit(max(0, min(99, pct)), msg),
@@ -145,7 +166,8 @@ class Worker(QThread):
         items = self.payload.get("items", [])
         self.log.emit(f"开始删除 {len(items)} 个项目")
         engine = UninstallEngine(logger=self.log.emit, progress=self.progress.emit,
-                                 should_stop=self._should_stop)
+                                 should_stop=self._should_stop,
+                                 tech=lambda text: self.tech.emit(text))
         res: EngineResult = engine.clean_items(items)
         data = res.to_dict()
         data["mode"] = self.mode

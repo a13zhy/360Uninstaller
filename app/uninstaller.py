@@ -2,8 +2,33 @@
 
 import time
 
-from . import cleanup, process_utils, registry_utils
+from . import cleanup, process_utils, registry_utils, solutions
 from .constants import KIND_LABELS
+
+# 每一项清理动作对应的技术名，界面右侧「技术面板」直接显示这些字
+TECH_BY_KIND = {
+    "process": "进程树终止（taskkill /T /F）",
+    "service": "服务停止与注销（sc stop / sc delete）",
+    "task": "计划任务注销（schtasks /delete）",
+    "startup": "启动项登记项直删（HKCU\\...\\Run）",
+    "dir": "接管所有权 → 递归删树 → 失败登记重启删除",
+    "file": "接管所有权 → 删文件 → 失败登记重启删除",
+    "dll": "RestartManager 释放句柄 → 驱动文件删除",
+    "registry": "ACL 接管 → RegDeleteTree / RegDeleteValue",
+    "shortcut": "快捷方式文件直删",
+}
+
+STAGE_TECH = {
+    "process": "进程树终止：先 taskkill /T /F，父进程带子进程一起结束",
+    "service": "服务拆除：sc stop 停服，sc delete 注销服务登记",
+    "task": "计划任务：schtasks /delete 注销升级与守护任务",
+    "startup": "开机启动项：直删 Run 值与启动目录快捷方式",
+    "dir": "目录拆除：takeown + icacls 接管，再递归删树",
+    "file": "文件删除：接管所有权后删文件，占用则登记重启删除",
+    "dll": "模块与驱动：释放句柄后删 dll/sys，驱动残留登记重启",
+    "registry": "注册表：接管键 ACL，再 RegDeleteTree 整键删除",
+    "shortcut": "快捷方式：桌面、开始菜单、任务栏三处直删",
+}
 
 
 class EngineResult:
@@ -23,6 +48,7 @@ class EngineResult:
         self.pending += max(0, pending)
         if item is not None:
             self.freed += getattr(item, "size", 0) if ok and not pending else 0
+            sol = solutions.for_failure(item.kind, detail, pending)
             self.rows.append({
                 "kind": item.kind,
                 "kind_label": item.kind_label,
@@ -31,6 +57,7 @@ class EngineResult:
                 "ok": ok,
                 "pending": pending,
                 "detail": detail,
+                "solution": sol.to_dict() if sol else None,
             })
 
     @property
@@ -83,10 +110,20 @@ def remove_one(item, logger=None) -> tuple[bool, str, int]:
 class UninstallEngine:
     """对勾选的清理项执行拆除，过程实时回调进度与日志。"""
 
-    def __init__(self, logger=None, progress=None, should_stop=None):
+    def __init__(self, logger=None, progress=None, should_stop=None, tech=None):
         self.logger = logger or (lambda _msg: None)
         self.progress = progress or (lambda _msg, _pct: None)
         self.should_stop = should_stop or (lambda: False)
+        self.tech = tech or (lambda _text: None)
+        self._last_kind = ""
+
+    def _announce(self, kind: str):
+        """同一类动作只在切换时播报，避免技术面板刷屏。"""
+        if kind == self._last_kind:
+            return
+        self._last_kind = kind
+        text = STAGE_TECH.get(kind) or TECH_BY_KIND.get(kind) or "通用删除"
+        self.tech(text)
 
     def clean_items(self, items, stage_prefix: str = "") -> EngineResult:
         result = EngineResult()
@@ -98,6 +135,7 @@ class UninstallEngine:
                 break
             pct = int(idx * 100 / total)
             self.progress(f"{stage_prefix}正在处理 {idx}/{total}：{item.label}", pct)
+            self._announce(item.kind)
             ok, detail, pending = remove_one(item, self.logger)
             result.add(item, ok, detail, pending)
             if item.kind in ("dir", "file", "dll") and ok and not pending:
@@ -142,6 +180,7 @@ class UninstallEngine:
             stage = labels.get(order.get(item.kind, 9), "清理")
             pct = int(idx * 100 / total)
             self.progress(f"{stage}：{item.label} ({idx}/{total})", pct)
+            self._announce(item.kind)
             ok, detail, pending = remove_one(item, self.logger)
             result.add(item, ok, detail, pending)
         return result
