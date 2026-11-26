@@ -1,0 +1,6 @@
+bin/
+obj/
+*.ttf
+*.png
+*.pdb
+*.user
