@@ -1,0 +1,288 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:ResidualCleaner.Maui.ViewModels"
+             x:Class="ResidualCleaner.Maui.MainPage"
+             Title="残留清理卫士">
+
+    <Grid BackgroundColor="{StaticResource AppBackgroundColor}" Padding="12" RowSpacing="10" ColumnSpacing="10">
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="140" />
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="296" />
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="44" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="26" />
+        </Grid.RowDefinitions>
+
+        <!-- 顶部标题栏 -->
+        <Grid Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2" ColumnSpacing="10" VerticalOptions="Center">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <HorizontalStackLayout Grid.Column="0" Spacing="10" VerticalOptions="Center">
+                <Border WidthRequest="26" HeightRequest="26" BackgroundColor="{StaticResource AppAccentColor}" StrokeShape="Rectangle" VerticalOptions="Center">
+                    <Label Text="盾" TextColor="White" FontSize="13" FontAttributes="Bold" HorizontalOptions="Center" VerticalOptions="Center" />
+                </Border>
+                <Label Text="残留清理卫士" FontSize="16" FontAttributes="Bold" VerticalOptions="Center" />
+                <Label x:Name="VersionText" FontSize="11" TextColor="{StaticResource AppTextSubColor}" VerticalOptions="Center" />
+            </HorizontalStackLayout>
+            <Border Grid.Column="1" BackgroundColor="{StaticResource AppSuccessColor}" Opacity="0.12" StrokeShape="Rectangle" Padding="10,4" VerticalOptions="Center">
+                <Label Text="管理员" TextColor="{StaticResource AppSuccessColor}" FontSize="11" />
+            </Border>
+        </Grid>
+
+        <!-- 左侧导航 -->
+        <VerticalStackLayout Grid.Row="1" Grid.Column="0" Spacing="4">
+            <Button x:Name="NavClean" Style="{StaticResource NavButton}" Text="软件清理" Clicked="OnNavClick" CommandParameter="Clean" />
+            <Button x:Name="NavBundle" Style="{StaticResource NavButton}" Text="一条龙" Clicked="OnNavClick" CommandParameter="Bundle" />
+            <Button x:Name="NavAbout" Style="{StaticResource NavButton}" Text="关于与更新" Clicked="OnNavClick" CommandParameter="About" />
+
+            <Border BackgroundColor="{StaticResource AppCardColor}" Stroke="{StaticResource AppBorderBrush}" Padding="10,8" Margin="0,12,0,0" VerticalOptions="End">
+                <VerticalStackLayout Spacing="3">
+                    <Label x:Name="BootCardTitle" FontSize="11" FontAttributes="Bold" />
+                    <Label Text="支持 360 系软件与小鸟壁纸" FontSize="10" TextColor="{StaticResource AppTextSubColor}" />
+                    <Label Text="未检测到的不展示" FontSize="10" TextColor="{StaticResource AppTextSubColor}" />
+                </VerticalStackLayout>
+            </Border>
+        </VerticalStackLayout>
+
+        <!-- 中间主区域 -->
+        <Grid Grid.Row="1" Grid.Column="1">
+
+            <!-- 软件清理面板 -->
+            <VerticalStackLayout x:Name="CleanPanel" Spacing="10">
+                <Grid ColumnSpacing="10" VerticalOptions="Center">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <HorizontalStackLayout Grid.Column="0" Spacing="8" VerticalOptions="Center">
+                        <Label Text="选择要卸载的软件" FontSize="14" FontAttributes="Bold" VerticalOptions="Center" />
+                        <Label x:Name="DetectCount" FontSize="11" TextColor="{StaticResource AppTextSubColor}" VerticalOptions="Center" />
+                    </HorizontalStackLayout>
+                    <Button Grid.Column="1" x:Name="RescanButton" Style="{StaticResource GhostButton}" Text="重新检测" Clicked="OnRescanClick" />
+                    <Button Grid.Column="2" x:Name="SelectAllLink" BackgroundColor="Transparent" TextColor="{StaticResource AppAccentColor}" Padding="8,7" Text="全选" Clicked="OnSelectAll" />
+                </Grid>
+
+                <!-- 分段模式条 -->
+                <Grid ColumnSpacing="2" BackgroundColor="{StaticResource AppCardColor}" Padding="2">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Button Grid.Column="0" x:Name="ModeSingleBtn" Text="单项卸载" CornerRadius="2" Padding="14,8" FontSize="11" Clicked="OnModeSelect" CommandParameter="single" />
+                    <Button Grid.Column="1" x:Name="ModeBundleBtn" Text="一条龙·全家桶清除" CornerRadius="2" Padding="14,8" FontSize="11" Clicked="OnModeSelect" CommandParameter="bundle" />
+                </Grid>
+                <Label x:Name="ModeHint" FontSize="10" TextColor="{StaticResource AppTextSubColor}" />
+
+                <Border BackgroundColor="{StaticResource AppCardColor}" Stroke="{StaticResource AppBorderBrush}" Padding="6,2">
+                    <CollectionView x:Name="AppList" SelectionMode="None" BackgroundColor="Transparent">
+                        <CollectionView.ItemTemplate>
+                            <DataTemplate x:DataType="vm:AppRowViewModel">
+                                <Grid ColumnSpacing="12" Padding="10,9">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}" VerticalOptions="Center" />
+                                    <VerticalStackLayout Grid.Column="1" Spacing="4">
+                                        <HorizontalStackLayout Spacing="8" VerticalOptions="Center">
+                                            <Label Text="{Binding Name}" FontSize="12" FontAttributes="Bold" VerticalOptions="Center" />
+                                            <Border IsVisible="{Binding Running}" BackgroundColor="{StaticResource AppSuccessColor}" Opacity="0.12" Padding="6,2">
+                                                <Label Text="运行中" FontSize="10" TextColor="{StaticResource AppSuccessColor}" />
+                                            </Border>
+                                        </HorizontalStackLayout>
+                                        <Label Text="{Binding Detail}" FontSize="10" TextColor="{StaticResource AppTextSubColor}" />
+                                        <Label Text="{Binding Note}" FontSize="10" TextColor="{StaticResource AppAccentColor}" />
+                                    </VerticalStackLayout>
+                                </Grid>
+                            </DataTemplate>
+                        </CollectionView.ItemTemplate>
+                    </CollectionView>
+                </Border>
+
+                <Grid ColumnSpacing="10" VerticalOptions="Center">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Label Grid.Column="0" x:Name="CleanStats" FontSize="11" TextColor="{StaticResource AppTextSubColor}" VerticalOptions="Center" />
+                    <Button Grid.Column="1" x:Name="ClearAllButton" Style="{StaticResource GhostButton}" Text="取消选择" Clicked="OnClearAll" />
+                    <Button Grid.Column="2" x:Name="ActionButton" Style="{StaticResource PrimaryButton}" Clicked="OnActionClick" />
+                </Grid>
+            </VerticalStackLayout>
+
+            <!-- 一条龙面板 -->
+            <VerticalStackLayout x:Name="BundlePanel" Spacing="10" IsVisible="False">
+                <Label Text="一条龙·全家桶清除" FontSize="14" FontAttributes="Bold" />
+
+                <Border BackgroundColor="{StaticResource AppCardColor}" Stroke="{StaticResource AppBorderBrush}" Padding="12,10">
+                    <VerticalStackLayout Spacing="8">
+                        <Label Text="四个步骤按顺序跑，中间不自动重启，每一步都要你确认。" FontSize="11" TextColor="{StaticResource AppTextSubColor}" />
+                        <Label Text="1  全量拆解：本机检测到的全部 360 系软件，进程→服务→目录→注册表逐层清" FontSize="10" TextColor="{StaticResource AppTextSubColor}" />
+                        <Label Text="2  深度扫盘：扫描各盘一级 360 目录、两处 Temp、桌面与下载目录" FontSize="10" TextColor="{StaticResource AppTextSubColor}" />
+                        <Label Text="3  残余复核：残留项列进小窗，逐项勾选后再删，失败项给解决方案" FontSize="10" TextColor="{StaticResource AppTextSubColor}" />
+                        <Label Text="4  开机巡检：可选登记，下次登录在右下角复查一次，结果仍需你确认" FontSize="10" TextColor="{StaticResource AppTextSubColor}" />
+                    </VerticalStackLayout>
+                </Border>
+
+                <Border BackgroundColor="{StaticResource AppCardColor}" Stroke="{StaticResource AppBorderBrush}" Padding="12,10">
+                    <Grid ColumnSpacing="10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <VerticalStackLayout Grid.Column="0" Spacing="4">
+                            <HorizontalStackLayout Spacing="8" VerticalOptions="Center">
+                                <CheckBox x:Name="BootRegister" CheckedChanged="OnBootToggle" />
+                                <Label Text="登记开机巡检（右下角小窗）" VerticalOptions="Center" />
+                            </HorizontalStackLayout>
+                            <Label x:Name="BootStateText" FontSize="10" TextColor="{StaticResource AppTextSubColor}" />
+                        </VerticalStackLayout>
+                        <Button Grid.Column="1" x:Name="PatrolButton" Style="{StaticResource GhostButton}" Text="立即巡检" Clicked="OnPatrolClick" VerticalOptions="Center" />
+                    </Grid>
+                </Border>
+
+                <Grid ColumnSpacing="10" VerticalOptions="Center">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Label Grid.Column="0" Text="清完会问你要不要重启，20 秒内可撤销" FontSize="11" TextColor="{StaticResource AppTextSubColor}" VerticalOptions="Center" />
+                    <Button Grid.Column="1" x:Name="BundleButton" Style="{StaticResource PrimaryButton}" Text="开始一条龙清除" Clicked="OnBundleClick" />
+                </Grid>
+            </VerticalStackLayout>
+
+            <!-- 关于面板 -->
+            <VerticalStackLayout x:Name="AboutPanel" Spacing="10" IsVisible="False">
+                <Border BackgroundColor="{StaticResource AppCardColor}" Stroke="{StaticResource AppBorderBrush}" Padding="14,12">
+                    <VerticalStackLayout Spacing="8">
+                        <Label x:Name="AboutVersion" FontSize="13" FontAttributes="Bold" />
+                        <Label Text="Windows 深度卸载与残留清理 · 第三方独立工具，与奇虎 360 无关联" FontSize="11" TextColor="{StaticResource AppTextSubColor}" />
+                        <Label x:Name="AboutLogDir" FontSize="10" />
+                        <HorizontalStackLayout Spacing="10">
+                            <Button x:Name="UpdateButton" Style="{StaticResource GhostButton}" Text="检查更新" Clicked="OnCheckUpdateClick" />
+                            <Label x:Name="UpdateStatus" FontSize="11" TextColor="{StaticResource AppTextSubColor}" VerticalOptions="Center" />
+                        </HorizontalStackLayout>
+                        <Border x:Name="UpdateTrack" HeightRequest="4" BackgroundColor="{StaticResource AppBorderColor}" IsVisible="False">
+                            <Border x:Name="UpdateFill" WidthRequest="0" HeightRequest="4" BackgroundColor="{StaticResource AppAccentColor}" HorizontalOptions="Start" />
+                        </Border>
+                        <Label x:Name="UpdateProgress" FontSize="10" TextColor="{StaticResource AppTextSubColor}" IsVisible="False" />
+                    </VerticalStackLayout>
+                </Border>
+            </VerticalStackLayout>
+        </Grid>
+
+        <!-- 右侧栏 -->
+        <VerticalStackLayout Grid.Row="1" Grid.Column="2" Spacing="10">
+            <Border BackgroundColor="{StaticResource AppCardColor}" Stroke="{StaticResource AppBorderBrush}" Padding="12,10">
+                <VerticalStackLayout Spacing="6">
+                    <Grid ColumnSpacing="10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Label Grid.Column="0" Text="技术面板" FontSize="11" TextColor="{StaticResource AppTextSubColor}" />
+                        <Border Grid.Column="1" BackgroundColor="{StaticResource AppSuccessColor}" Opacity="0.12" Padding="6,2">
+                            <Label x:Name="TechBadgeText" Text="待命" FontSize="10" TextColor="{StaticResource AppSuccessColor}" />
+                        </Border>
+                    </Grid>
+                    <Label x:Name="TechState" Text="演示状态：等待开始" FontSize="12" TextColor="{StaticResource AppAccentColor}" />
+                    <BoxView HeightRequest="1" Color="{StaticResource AppBorderColor}" />
+                    <Label x:Name="TechLine" Text="技术：进程树终止 · taskkill /T /F" FontSize="10" TextColor="{StaticResource AppTextSubColor}" />
+                    <ScrollView MaximumHeightRequest="96">
+                        <Label x:Name="TechLog" FontSize="10" TextColor="{StaticResource AppTextSubColor}" />
+                    </ScrollView>
+                </VerticalStackLayout>
+            </Border>
+
+            <Border BackgroundColor="{StaticResource AppCardColor}" Stroke="{StaticResource AppBorderBrush}" Padding="12,10">
+                <VerticalStackLayout Spacing="6">
+                    <Label Text="解决方案" FontSize="11" TextColor="{StaticResource AppTextSubColor}" />
+                    <Label x:Name="SolTitle" Text="被 360 内核驱动拦截" FontSize="12" FontAttributes="Bold" TextColor="{StaticResource AppDangerColor}" />
+                    <VerticalStackLayout x:Name="SolBullets" Spacing="4" />
+                </VerticalStackLayout>
+            </Border>
+        </VerticalStackLayout>
+
+        <!-- 残余项目覆盖层 -->
+        <Border x:Name="ResidualOverlay" Grid.Row="1" Grid.Column="1" IsVisible="False"
+                BackgroundColor="{StaticResource AppCardColor}" Stroke="{StaticResource AppBorderBrush}" Padding="14,12"
+                HorizontalOptions="Fill" VerticalOptions="Fill">
+            <VerticalStackLayout Spacing="10">
+                <Grid ColumnSpacing="10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Label Grid.Column="0" Text="残余项目" FontSize="13" FontAttributes="Bold" VerticalOptions="Center" />
+                    <Button Grid.Column="1" x:Name="ResidualClose" Style="{StaticResource GhostButton}" Text="关闭" Clicked="OnResidualClose" />
+                </Grid>
+                <Label x:Name="ResidualSummary" FontSize="11" TextColor="{StaticResource AppTextSubColor}" />
+                <Border BackgroundColor="{StaticResource AppBackgroundColor}" Stroke="{StaticResource AppBorderBrush}" Padding="6,2">
+                    <CollectionView x:Name="ResidualList" SelectionMode="None" MaximumHeightRequest="240">
+                        <CollectionView.ItemTemplate>
+                            <DataTemplate x:DataType="vm:ResidualRowViewModel">
+                                <Grid ColumnSpacing="12" Padding="10,9">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}" VerticalOptions="Center" />
+                                    <VerticalStackLayout Grid.Column="1" Spacing="3">
+                                        <HorizontalStackLayout Spacing="8" VerticalOptions="Center">
+                                            <Label Text="{Binding Label}" FontSize="12" VerticalOptions="Center" />
+                                            <Label Text="{Binding KindLabel}" FontSize="10" TextColor="{StaticResource AppTextSubColor}" VerticalOptions="Center" />
+                                            <Label Text="{Binding SizeText}" FontSize="10" TextColor="{StaticResource AppTextSubColor}" VerticalOptions="Center" />
+                                        </HorizontalStackLayout>
+                                        <Label Text="{Binding Target}" FontSize="10" TextColor="{StaticResource AppTextSubColor}" />
+                                        <Label Text="{Binding Status}" FontSize="10" TextColor="{StaticResource AppAccentColor}" />
+                                    </VerticalStackLayout>
+                                </Grid>
+                            </DataTemplate>
+                        </CollectionView.ItemTemplate>
+                    </CollectionView>
+                </Border>
+                <Label x:Name="ResidualStatus" FontSize="11" TextColor="{StaticResource AppTextSubColor}" />
+                <Grid ColumnSpacing="10" HorizontalOptions="End">
+                    <Button x:Name="ResidualScan" Style="{StaticResource GhostButton}" Text="深度扫描" Clicked="OnResidualScan" />
+                    <Button x:Name="ResidualClean" Style="{StaticResource PrimaryButton}" Text="清理选中" Clicked="OnResidualClean" />
+                </Grid>
+            </VerticalStackLayout>
+        </Border>
+
+        <!-- 重启询问条 -->
+        <Border x:Name="RebootBar" Grid.Row="1" Grid.Column="1" VerticalOptions="End" Margin="0,0,0,8"
+                BackgroundColor="{StaticResource AppCardColor}" Stroke="{StaticResource AppAccentBrush}" Padding="12,10" IsVisible="False">
+            <Grid ColumnSpacing="10">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <VerticalStackLayout Grid.Column="0" Spacing="3" VerticalOptions="Center">
+                    <Label x:Name="RebootTitle" FontSize="12" FontAttributes="Bold" Text="清理完成，是否重启以完成残留清理？" />
+                    <Label x:Name="RebootHint" FontSize="10" TextColor="{StaticResource AppTextSubColor}" />
+                </VerticalStackLayout>
+                <Button Grid.Column="1" x:Name="RebootYes" Style="{StaticResource PrimaryButton}" Text="安排重启" Clicked="OnRebootYes" VerticalOptions="Center" />
+                <Button Grid.Column="2" x:Name="RebootUndo" Style="{StaticResource GhostButton}" Text="撤销" Clicked="OnRebootUndo" IsVisible="False" VerticalOptions="Center" />
+            </Grid>
+        </Border>
+
+        <!-- 底部日志栏 -->
+        <Grid Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" VerticalOptions="Center">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <Label Grid.Column="0" x:Name="StatusText" FontSize="11" TextColor="{StaticResource AppTextSubColor}" VerticalOptions="Center" />
+            <Label Grid.Column="1" x:Name="FooterLog" FontSize="10" TextColor="{StaticResource AppTextSubColor}" VerticalOptions="Center" />
+        </Grid>
+    </Grid>
+</ContentPage>
