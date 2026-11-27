@@ -6,7 +6,7 @@ public static class AppPaths
 {
     public static string AppName { get; } = "残留清理卫士";
     public static string AppNameEn { get; } = "ResidualCleaner";
-    public static string AppVersion { get; } = "1.3.0.261118";
+    public static string AppVersion { get; } = "1.3.1.261127";
     public static string Tagline { get; } = "Windows 深度卸载与残留清理";
 
     public static string ProgramFiles { get; } = Environment.GetEnvironmentVariable("ProgramFiles") ?? @"C:\Program Files";
