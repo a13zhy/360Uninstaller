@@ -11,6 +11,8 @@ public sealed class CleanItem
     public string AppKey { get; set; } = "";
     public string AppName { get; set; } = "";
     public long Size { get; set; }
+    public string IconHint { get; set; } = "";
+    public bool IsEmptyDir { get; set; }
     public Dictionary<string, string> Extra { get; } = new();
 
     public string KindLabel => AppCatalog.KindLabels.TryGetValue(Kind, out var label) ? label : Kind;

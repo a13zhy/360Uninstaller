@@ -12,4 +12,5 @@ public sealed class AppDefinition
     public List<string> Tasks { get; set; } = new();
     public List<string> Shortcuts { get; set; } = new();
     public List<string> Keywords { get; set; } = new();
+    public string Category { get; set; } = "tool";
 }

@@ -74,10 +74,17 @@
                                 <Grid ColumnSpacing="12" Padding="10,9">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
                                     <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}" VerticalOptions="Center" />
-                                    <VerticalStackLayout Grid.Column="1" Spacing="4">
+                                    <Border Grid.Column="1" WidthRequest="30" HeightRequest="30" BackgroundColor="{StaticResource AppBackgroundColor}" StrokeShape="Rectangle" VerticalOptions="Center" Padding="3">
+                                        <Grid>
+                                            <Image Source="{Binding IconSource}" IsVisible="{Binding HasRealIcon}" WidthRequest="24" HeightRequest="24" VerticalOptions="Center" HorizontalOptions="Center" />
+                                            <Image Source="{Binding IconResource}" IsVisible="{Binding ShowFallback}" WidthRequest="20" HeightRequest="20" VerticalOptions="Center" HorizontalOptions="Center" />
+                                        </Grid>
+                                    </Border>
+                                    <VerticalStackLayout Grid.Column="2" Spacing="4">
                                         <HorizontalStackLayout Spacing="8" VerticalOptions="Center">
                                             <Label Text="{Binding Name}" FontSize="12" FontAttributes="Bold" VerticalOptions="Center" />
                                             <Border IsVisible="{Binding Running}" BackgroundColor="{StaticResource AppSuccessColor}" Opacity="0.12" Padding="6,2">
@@ -206,10 +213,17 @@
                                 <Grid ColumnSpacing="12" Padding="10,9">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="Auto" />
                                         <ColumnDefinition Width="*" />
                                     </Grid.ColumnDefinitions>
                                     <CheckBox IsChecked="{Binding IsChecked, Mode=TwoWay}" VerticalOptions="Center" />
-                                    <VerticalStackLayout Grid.Column="1" Spacing="3">
+                                    <Border Grid.Column="1" WidthRequest="30" HeightRequest="30" BackgroundColor="{StaticResource AppBackgroundColor}" StrokeShape="Rectangle" VerticalOptions="Center" Padding="3">
+                                        <Grid>
+                                            <Image Source="{Binding IconSource}" IsVisible="{Binding HasRealIcon}" WidthRequest="24" HeightRequest="24" VerticalOptions="Center" HorizontalOptions="Center" />
+                                            <Image Source="{Binding IconResource}" IsVisible="{Binding ShowFallback}" WidthRequest="20" HeightRequest="20" VerticalOptions="Center" HorizontalOptions="Center" />
+                                        </Grid>
+                                    </Border>
+                                    <VerticalStackLayout Grid.Column="2" Spacing="3">
                                         <HorizontalStackLayout Spacing="8" VerticalOptions="Center">
                                             <Label Text="{Binding Label}" FontSize="12" VerticalOptions="Center" />
                                             <Label Text="{Binding KindLabel}" FontSize="10" TextColor="{StaticResource AppTextSubColor}" VerticalOptions="Center" />

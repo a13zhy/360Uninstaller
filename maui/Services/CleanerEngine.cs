@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Threading;
+using ResidualCleaner.Maui.Data;
 using ResidualCleaner.Maui.Models;
 
 namespace ResidualCleaner.Maui.Services;
@@ -147,6 +148,7 @@ public sealed class CleanerEngine
             case "dir":
             case "file":
                 (ok, detail, _, pending) = RemovePath(item.Target, force: true);
+                if (ok && pending == 0 && item.Kind == "dir") PruneEmptyShells(item.Target);
                 break;
             case "registry":
                 if (item.Extra.TryGetValue("value_name", out var valueName))
@@ -254,6 +256,24 @@ public sealed class CleanerEngine
             failed.Add(ForceRemove.ErrorText(ex));
         }
         return !File.Exists(path) && !Directory.Exists(path);
+    }
+
+    private void PruneEmptyShells(string deletedPath)
+    {
+        try
+        {
+            var parent = Path.GetDirectoryName(deletedPath.TrimEnd('\\'));
+            while (!string.IsNullOrEmpty(parent) && Directory.Exists(parent))
+            {
+                if (!AppCatalog.IsRelatedPath(parent)) break;
+                if (!AppCatalog.IsUnderBoundary(parent)) break;
+                if (!AppCatalog.DirectoryIsEmpty(parent)) break;
+                Directory.Delete(parent, false);
+                _logger($"  清理空壳目录：{parent}");
+                parent = Path.GetDirectoryName(parent);
+            }
+        }
+        catch { }
     }
 
     private static bool IsSymlink(string path)

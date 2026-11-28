@@ -215,6 +215,28 @@ public partial class MainPage : ContentPage
         StatusText.Text = $"扫描完成：{_rows.Count} 款已安装，{result.Items?.Count ?? 0} 个可清理项。";
         UpdateSelectedCount();
         RenderSolutions(result);
+        _ = LoadAppIconsAsync();
+    }
+
+    private async Task LoadAppIconsAsync()
+    {
+        var rows = _rows.ToList();
+        foreach (var row in rows)
+        {
+            var items = _itemsByApp.TryGetValue(row.App.Key, out var list) ? list : null;
+            var source = await Task.Run(() => IconService.Resolve(row.App, items));
+            Dispatcher.Dispatch(() => row.IconSource = source);
+        }
+    }
+
+    private async Task LoadResidualIconsAsync()
+    {
+        var rows = _residualRows.ToList();
+        foreach (var row in rows)
+        {
+            var source = await Task.Run(() => IconService.Resolve(row.Item));
+            Dispatcher.Dispatch(() => row.IconSource = source);
+        }
     }
 
     private static string BuildDetail(List<CleanItem> items)
@@ -342,6 +364,7 @@ public partial class MainPage : ContentPage
         }
         RefreshResidualSummary();
         ResidualOverlay.IsVisible = _residualRows.Count > 0;
+        _ = LoadResidualIconsAsync();
     }
 
     private void RefreshResidualSummary()
@@ -402,6 +425,7 @@ public partial class MainPage : ContentPage
         }
         RefreshResidualSummary();
         ResidualStatus.Text = "清理完成。";
+        _ = LoadResidualIconsAsync();
     }
 
     private void ShowRebootPrompt()

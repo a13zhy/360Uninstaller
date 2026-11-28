@@ -87,7 +87,7 @@ public sealed class Scanner
             items.Add(new CleanItem { Kind = "service", Target = svc, Label = svc, AppKey = app.Key, AppName = app.Name });
 
         foreach (var d in app.Dirs.Where(d => !string.IsNullOrEmpty(d) && Directory.Exists(d)))
-            items.Add(new CleanItem { Kind = "dir", Target = d, Label = d, AppKey = app.Key, AppName = app.Name, Size = withSize ? AppPaths.PathSize(d) : 0 });
+            items.Add(new CleanItem { Kind = "dir", Target = d, Label = d, AppKey = app.Key, AppName = app.Name, IconHint = d, Size = withSize ? AppPaths.PathSize(d) : 0 });
 
         foreach (var r in app.Regs.Where(RegistryService.KeyExists))
             items.Add(new CleanItem { Kind = "registry", Target = r, Label = r, AppKey = app.Key, AppName = app.Name });
@@ -96,7 +96,7 @@ public sealed class Scanner
             items.Add(new CleanItem { Kind = "task", Target = t, Label = t, AppKey = app.Key, AppName = app.Name });
 
         foreach (var sc in EnumerateShortcuts().Where(sc => app.Shortcuts.Any(k => Path.GetFileName(sc).Contains(k, StringComparison.OrdinalIgnoreCase))))
-            items.Add(new CleanItem { Kind = "shortcut", Target = sc, Label = Path.GetFileName(sc), AppKey = app.Key, AppName = app.Name, Size = FileSize(sc) });
+            items.Add(new CleanItem { Kind = "shortcut", Target = sc, Label = Path.GetFileName(sc), AppKey = app.Key, AppName = app.Name, IconHint = sc, Size = FileSize(sc) });
 
         return items;
     }
@@ -138,6 +138,7 @@ public sealed class Scanner
         foreach (var t in _snap.Tasks.Where(t => Hit(t, AppCatalog.TaskKeywords)))
             items.Add(new CleanItem { Kind = "task", Target = t, Label = t, AppName = "计划任务" });
 
+        items.AddRange(CollectEmptyDirs());
         return items;
     }
 
@@ -222,7 +223,7 @@ public sealed class Scanner
 
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var d in AppCatalog.CommonDirs().Where(d => !string.IsNullOrEmpty(d) && Directory.Exists(d) && seen.Add(d)))
-            items.Add(new CleanItem { Kind = "dir", Target = d, Label = d, AppName = "残留目录", Size = AppPaths.PathSize(d) });
+            items.Add(new CleanItem { Kind = "dir", Target = d, Label = d, AppName = "残留目录", IconHint = d, Size = AppPaths.PathSize(d) });
 
         foreach (var root in AppCatalog.CommonRegRoots)
             foreach (var sub in RegistryService.ListSubkeys(root).Where(s => Hit(s, AppCatalog.RegKeywords)))
@@ -243,7 +244,9 @@ public sealed class Scanner
             items.Add(new CleanItem { Kind = "task", Target = t, Label = t, AppName = "残留任务" });
 
         foreach (var sc in EnumerateShortcuts())
-            items.Add(new CleanItem { Kind = "shortcut", Target = sc, Label = Path.GetFileName(sc), AppName = "残留快捷方式", Size = FileSize(sc) });
+            items.Add(new CleanItem { Kind = "shortcut", Target = sc, Label = Path.GetFileName(sc), AppName = "残留快捷方式", IconHint = sc, Size = FileSize(sc) });
+
+        items.AddRange(CollectEmptyDirs());
 
         if (deep)
         {
@@ -266,6 +269,50 @@ public sealed class Scanner
             regs += app.Regs.Count(RegistryService.KeyExists);
         }
         return (installed, apps.Count, dirs, regs);
+    }
+
+    private List<CleanItem> CollectEmptyDirs(int limit = 200)
+    {
+        var items = new List<CleanItem>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var roots = AppCatalog.CommonDirs().Concat(AppCatalog.ScanRoots())
+            .Where(d => !string.IsNullOrEmpty(d) && Directory.Exists(d))
+            .Distinct(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var baseDir in roots)
+        {
+            var stack = new Stack<string>();
+            stack.Push(baseDir);
+            while (stack.Count > 0)
+            {
+                var dir = stack.Pop();
+                string[] subs;
+                try { subs = Directory.GetDirectories(dir); }
+                catch { continue; }
+                foreach (var sub in subs)
+                {
+                    if (!AppCatalog.IsRelatedPath(sub)) continue;
+                    try
+                    {
+                        if (AppCatalog.DirectoryIsEmpty(sub) && seen.Add(Path.GetFullPath(sub)))
+                        {
+                            items.Add(new CleanItem
+                            {
+                                Kind = "dir", Target = sub, Label = "空目录：" + sub,
+                                AppName = "空目录残留", IsEmptyDir = true, IconHint = sub, Size = 0,
+                            });
+                        }
+                        else
+                        {
+                            stack.Push(sub);
+                        }
+                    }
+                    catch { }
+                    if (items.Count >= limit) return items;
+                }
+            }
+        }
+        return items;
     }
 
     private static long FileSize(string path)

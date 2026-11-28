@@ -65,6 +65,118 @@ public static class AppCatalog
     public static readonly string[] ServiceKeywords = { "360", "qhsafe", "zhudongfangyu", "2345", "pcsafe" };
     public static readonly string[] ShortcutKeywords = { "360", "2345", "好压", "看图王" };
 
+    public static readonly Dictionary<string, string> CategoryByKey = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["360safe"] = "shield", ["360sd"] = "shield", ["360safelite"] = "shield",
+        ["360child"] = "shield", ["2345safe"] = "shield",
+        ["360se"] = "browser", ["360chromex"] = "browser", ["360aibrowser"] = "browser",
+        ["360chromelite"] = "browser", ["2345explorer"] = "browser", ["2345chrome"] = "browser",
+        ["360zip"] = "archive", ["haozip"] = "archive",
+        ["360wallpaper"] = "wallpaper", ["birdwallpaper"] = "wallpaper", ["2345pic"] = "image",
+        ["2345ime"] = "keyboard",
+        ["360drvmgr"] = "tool", ["360softmgr"] = "tool", ["360yunpan"] = "tool",
+        ["360mobile"] = "tool", ["360deskmgr"] = "tool", ["360wifi"] = "tool",
+        ["360qiangpiao"] = "tool", ["360aioffice"] = "tool", ["2345softmgr"] = "tool",
+        ["360game"] = "game", ["2345game"] = "game",
+        ["360ys"] = "media", ["360kuaijie"] = "media",
+    };
+
+    public static readonly Dictionary<string, string> CategoryIcon = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["shield"] = "bi_shield.svg",
+        ["browser"] = "bi_browser.svg",
+        ["archive"] = "bi_archive.svg",
+        ["image"] = "bi_image.svg",
+        ["wallpaper"] = "bi_wallpaper.svg",
+        ["keyboard"] = "bi_keyboard.svg",
+        ["tool"] = "bi_tool.svg",
+        ["game"] = "bi_game.svg",
+        ["media"] = "bi_media.svg",
+        ["folder"] = "bi_folder.svg",
+        ["process"] = "bi_process.svg",
+        ["service"] = "bi_service.svg",
+        ["task"] = "bi_task.svg",
+        ["reg"] = "bi_reg.svg",
+        ["shortcut"] = "bi_shortcut.svg",
+        ["trash"] = "bi_trash.svg",
+    };
+
+    public static string IconForKind(string kind) => kind switch
+    {
+        "process" => CategoryIcon["process"],
+        "service" => CategoryIcon["service"],
+        "task" => CategoryIcon["task"],
+        "dir" => CategoryIcon["folder"],
+        "file" => CategoryIcon["folder"],
+        "registry" => CategoryIcon["reg"],
+        "shortcut" => CategoryIcon["shortcut"],
+        _ => CategoryIcon["folder"],
+    };
+
+    public static string IconForCategory(string category) =>
+        CategoryIcon.TryGetValue(category, out var v) ? v : CategoryIcon["tool"];
+
+    public static List<string> BoundaryRoots() => new List<string>()
+    {
+        AppPaths.ProgramFiles,
+        AppPaths.ProgramFilesX86,
+        AppPaths.ProgramData,
+        AppPaths.AppData,
+        AppPaths.LocalAppData,
+        AppPaths.UserProfile,
+        AppPaths.Desktop,
+        Path.Combine(AppPaths.UserProfile, "Downloads"),
+        Path.Combine(AppPaths.UserProfile, "Documents"),
+    }.Where(p => !string.IsNullOrEmpty(p)).ToList();
+
+    public static bool IsUnderBoundary(string path)
+    {
+        var full = Path.GetFullPath(path).TrimEnd('\\');
+        foreach (var b in BoundaryRoots())
+        {
+            var root = Path.GetFullPath(b).TrimEnd('\\');
+            if (string.Equals(full, root, StringComparison.OrdinalIgnoreCase)) return true;
+            if (full.StartsWith(root + "\\", StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        return false;
+    }
+
+    public static bool IsRelatedPath(string path)
+    {
+        static bool Hit(string text, IEnumerable<string> keywords) =>
+            keywords.Any(k => text.Contains(k, StringComparison.OrdinalIgnoreCase));
+        var name = Path.GetFileName(path.TrimEnd('\\'));
+        if (Hit(name, FileKeywords)) return true;
+        foreach (var root in CommonDirs().Concat(ScanRoots()))
+        {
+            if (string.IsNullOrEmpty(root)) continue;
+            var r = Path.GetFullPath(root).TrimEnd('\\');
+            var p = Path.GetFullPath(path).TrimEnd('\\');
+            if (string.Equals(p, r, StringComparison.OrdinalIgnoreCase) ||
+                p.StartsWith(r + "\\", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
+    }
+
+    public static bool DirectoryIsEmpty(string path)
+    {
+        try
+        {
+            if (!Directory.Exists(path)) return false;
+            var stack = new Stack<string>();
+            stack.Push(path);
+            while (stack.Count > 0)
+            {
+                var d = stack.Pop();
+                if (Directory.GetFiles(d).Length > 0) return false;
+                foreach (var sub in Directory.GetDirectories(d)) stack.Push(sub);
+            }
+            return true;
+        }
+        catch { return false; }
+    }
+
     public static List<string> CommonDirs() => new()
     {
         Path.Combine(AppPaths.ProgramFilesX86, "360"),
@@ -133,8 +245,10 @@ public static class AppCatalog
         Path.Combine(AppPaths.AppData, "Microsoft", "Windows", "Start Menu", "Programs"),
     };
 
-    public static List<AppDefinition> Apps() => new()
+    public static List<AppDefinition> Apps()
     {
+        var list = new List<AppDefinition>
+        {
         new()
         {
             Key = "360safe", Name = "360 安全卫士", Desc = "主程序、托盘、主动防御与体检组件",
@@ -419,5 +533,9 @@ public static class AppCatalog
             Shortcuts = { "2345游戏大厅", "2345游戏" },
             Keywords = { "2345游戏", "2345game" },
         },
-    };
+        };
+        foreach (var a in list)
+            if (CategoryByKey.TryGetValue(a.Key, out var cat)) a.Category = cat;
+        return list;
+    }
 }
