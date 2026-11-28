@@ -60,11 +60,11 @@ public sealed class WorkerService
 
     private async Task<WorkerResult> DoScanAsync()
     {
-        OnLog?.Invoke("开始扫描 360 系列应用…");
+        OnLog?.Invoke("开始扫描目标软件残留…");
         var scanner = new Scanner();
         OnProgress?.Invoke(5, "读取已安装程序列表");
         var entries = scanner.UninstallEntries();
-        OnLog?.Invoke($"注册表卸载项命中 {entries.Count} 个 360 相关条目");
+        OnLog?.Invoke($"注册表卸载项命中 {entries.Count} 个目标软件相关条目");
 
         OnProgress?.Invoke(25, "检测进程与服务");
         var (items, status) = await Task.Run(() => scanner.ScanAllApps(true));
@@ -128,6 +128,6 @@ public sealed class WorkerService
         var pack = RegistryService.BuildSafeModePack(protectedItems);
         result.Protected = protectedItems.Count;
         result.SafePack = pack;
-        OnLog?.Invoke($"⚠ {protectedItems.Count} 项注册表被 360 自我保护拦截，已生成安全模式清理包：{pack}");
+        OnLog?.Invoke($"⚠ {protectedItems.Count} 项注册表被软件自我保护拦截，已生成安全模式清理包：{pack}");
     }
 }

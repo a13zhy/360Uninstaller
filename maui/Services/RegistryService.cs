@@ -28,6 +28,7 @@ public static class RegistryService
     private static readonly HashSet<string> ProtectedProcesses = new(StringComparer.OrdinalIgnoreCase)
     {
         "ZhuDongFangYu.exe", "360tray.exe", "360Safe.exe", "QHSafeTray.exe", "360sd.exe",
+        "2345Update.exe", "2345Svc.exe",
     };
 
     private static readonly HashSet<string> ProtectedServices = new(StringComparer.OrdinalIgnoreCase)
@@ -230,9 +231,9 @@ public static class RegistryService
     private static string ProtectedMessage()
     {
         var comps = ProtectionRunning();
-        var detail = comps.Count > 0 ? string.Join("、", comps.Take(4)) : "360 自我保护";
+        var detail = comps.Count > 0 ? string.Join("、", comps.Take(4)) : "软件自我保护";
         if (SafeModeActive()) return "仍被拦截（安全模式下异常，请检查驱动是否被残留服务重新加载）";
-        return $"被 360 自我保护拦截（{detail} 运行中），在线无法删除：请关闭自我保护，或用生成的安全模式清理包删除";
+        return $"被软件自我保护拦截（{detail} 运行中），在线无法删除：请关闭自我保护，或用生成的安全模式清理包删除";
     }
 
     public static string BuildSafeModePack(IEnumerable<string> paths)
@@ -249,7 +250,7 @@ public static class RegistryService
             var lines = new List<string>
             {
                 "@echo off", "chcp 65001 >nul", "title 残留清理卫士 - 安全模式清理",
-                "echo 正在删除 360 残留注册表项（仅删除下列清单中的项目）...", "echo.",
+                "echo 正在删除残留注册表项（仅删除下列清单中的项目）...", "echo.",
             };
             foreach (var path in unique)
             {
@@ -259,7 +260,7 @@ public static class RegistryService
             lines.AddRange(new[] { "echo.", "echo 清理完成。按任意键退出。", "pause >nul", "" });
             File.WriteAllLines(cmdPath, lines, new UTF8Encoding(true));
 
-            var txt = new List<string> { "以下注册表项因 360 自我保护在线无法删除，需在安全模式清理：", "" };
+            var txt = new List<string> { "以下注册表项因软件自我保护在线无法删除，需在安全模式清理：", "" };
             txt.AddRange(unique);
             txt.Add("");
             txt.Add("使用方法：重启 → 开机时按住 Shift 或 msconfig 选择安全模式 → 以管理员身份运行同目录下的 .cmd 文件。");

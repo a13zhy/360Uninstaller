@@ -462,9 +462,9 @@ public partial class MainPage : ContentPage
         SolBullets.Clear();
         if (solutions.Count == 0)
         {
-            SolTitle.Text = "被 360 内核驱动拦截";
+            SolTitle.Text = "被内核驱动拦截";
             SolTitle.TextColor = C("AppDangerColor");
-            AddBullet("先退出 360 托盘并关闭自我保护，再执行清理");
+            AddBullet("先退出对应软件托盘并关闭自我保护，再执行清理");
             AddBullet("已有残留驱动就进安全模式清理，正常模式下删不掉是预期行为");
             return;
         }
@@ -509,18 +509,19 @@ public partial class MainPage : ContentPage
                 return;
             }
 
-            var asset = Updater.PickExeAsset(release);
+            var asset = Updater.PickZipAsset(release) ?? Updater.PickExeAsset(release);
             if (asset == null)
             {
-                UpdateStatus.Text = $"发现新版本 {release.Tag}，但未找到可执行安装包，请手动到 Releases 下载";
+                UpdateStatus.Text = $"发现新版本 {release.Tag}，但未找到可安装包，请手动到 Releases 下载";
                 HideUpdateProgress();
                 return;
             }
 
+            var isZip = asset.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase);
             UpdateStatus.Text = $"发现新版本 {release.Tag}，正在测速选择链路…";
             var urls = Updater.BuildMirrorUrls(asset.Url);
             var url = await Updater.PickFastestAsync(urls, AppendLog);
-            var dest = Path.Combine(AppPaths.UpdateDir, "ResidualCleaner-update.exe");
+            var dest = Path.Combine(AppPaths.UpdateDir, isZip ? "ResidualCleaner-update.zip" : "ResidualCleaner-update.exe");
             UpdateProgress.Text = "开始下载…";
             await Updater.DownloadAsync(url, dest, (done, total) =>
             {
@@ -538,8 +539,21 @@ public partial class MainPage : ContentPage
                 });
             });
 
-            UpdateStatus.Text = "下载完成，正在替换程序并重启…";
-            var (ok, detail) = Updater.RestartAndInstall(dest);
+            bool ok;
+            string detail;
+            if (isZip)
+            {
+                var stage = Path.Combine(AppPaths.UpdateDir, "stage");
+                UpdateStatus.Text = "下载完成，正在解压…";
+                Updater.ExtractZip(dest, stage);
+                UpdateStatus.Text = "正在替换程序并重启…";
+                (ok, detail) = Updater.RestartAndInstallDirectory(stage);
+            }
+            else
+            {
+                UpdateStatus.Text = "下载完成，正在替换程序并重启…";
+                (ok, detail) = Updater.RestartAndInstall(dest);
+            }
             UpdateStatus.Text = ok ? "已安排替换并重启" : "替换失败：" + detail;
             if (!ok) HideUpdateProgress();
         }

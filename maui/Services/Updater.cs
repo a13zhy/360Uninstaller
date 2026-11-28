@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO;
+using System.IO.Compression;
 using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
@@ -86,6 +87,18 @@ public static class Updater
     public static ReleaseAsset? PickExeAsset(ReleaseInfo release) =>
         release.Assets.FirstOrDefault(a => a.Name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
                                             && !a.Name.Contains("verify", StringComparison.OrdinalIgnoreCase));
+
+    public static ReleaseAsset? PickZipAsset(ReleaseInfo release) =>
+        release.Assets.FirstOrDefault(a => a.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)
+                                            && !a.Name.Contains("src", StringComparison.OrdinalIgnoreCase)
+                                            && a.Name.Contains("win64", StringComparison.OrdinalIgnoreCase));
+
+    public static void ExtractZip(string zipPath, string stageDir)
+    {
+        if (Directory.Exists(stageDir)) Directory.Delete(stageDir, true);
+        Directory.CreateDirectory(stageDir);
+        ZipFile.ExtractToDirectory(zipPath, stageDir, true);
+    }
 
     public static string Sha256File(string path)
     {
@@ -191,6 +204,56 @@ public static class Updater
             "}",
             "if ($copied) {",
             "    Remove-Item -LiteralPath $new -Force",
+            "    Start-Process -FilePath $target",
+            "}",
+            "Remove-Item -LiteralPath $PSCommandPath -Force",
+            "",
+        });
+
+        var path = Path.Combine(Path.GetTempPath(), $"rc_update_{pid}.ps1");
+        File.WriteAllText(path, script, new UTF8Encoding(true));
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = "powershell",
+            ArgumentList = { "-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", path },
+            CreateNoWindow = true,
+            UseShellExecute = false,
+        });
+        return (true, "");
+    }
+
+    public static (bool Ok, string Detail) RestartAndInstallDirectory(string stageDir)
+    {
+        var target = Environment.ProcessPath ?? "";
+        if (string.IsNullOrEmpty(target) || !target.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+            return (false, "源码模式无法自动替换程序文件，请到 Releases 页面手动下载安装");
+
+        var targetDir = Path.GetDirectoryName(target) ?? "";
+        if (string.IsNullOrEmpty(targetDir)) return (false, "无法定位程序目录");
+
+        var pid = Environment.ProcessId;
+        var script = string.Join(Environment.NewLine, new[]
+        {
+            "$ErrorActionPreference = 'SilentlyContinue'",
+            $"$target = '{target.Replace("'", "''")}'",
+            $"$targetDir = '{targetDir.Replace("'", "''")}'",
+            $"$stage = '{Path.GetFullPath(stageDir).Replace("'", "''")}'",
+            $"$procId = {pid}",
+            "for ($i = 0; $i -lt 120; $i++) {",
+            "    if (-not (Get-Process -Id $procId -ErrorAction SilentlyContinue)) { break }",
+            "    Start-Sleep -Milliseconds 500",
+            "}",
+            "Start-Sleep -Milliseconds 1200",
+            "$copied = $false",
+            "for ($j = 0; $j -lt 60; $j++) {",
+            "    try {",
+            "        Copy-Item -Path (Join-Path $stage '*') -Destination $targetDir -Recurse -Force -ErrorAction Stop",
+            "        $copied = $true",
+            "        break",
+            "    } catch { Start-Sleep -Milliseconds 500 }",
+            "}",
+            "if ($copied) {",
+            "    Remove-Item -LiteralPath $stage -Recurse -Force",
             "    Start-Process -FilePath $target",
             "}",
             "Remove-Item -LiteralPath $PSCommandPath -Force",

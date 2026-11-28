@@ -33,7 +33,7 @@ public sealed class Scanner
                 var vals = RegistryService.ReadValues(path);
                 vals.TryGetValue("DisplayName", out var name);
                 if (string.IsNullOrWhiteSpace(name)) continue;
-                if (!Hit(name, new[] { "360", "奇虎", "qihu", "qhsafe" })) continue;
+                if (!Hit(name, AppCatalog.UninstallKeywords)) continue;
                 vals.TryGetValue("DisplayVersion", out var version);
                 vals.TryGetValue("Publisher", out var publisher);
                 vals.TryGetValue("InstallLocation", out var location);
@@ -120,23 +120,23 @@ public sealed class Scanner
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var d in AppCatalog.CommonDirs().Where(d => !string.IsNullOrEmpty(d) && Directory.Exists(d) && seen.Add(d)))
-            items.Add(new CleanItem { Kind = "dir", Target = d, Label = d, AppName = "360 公共组件", Size = withSize ? AppPaths.PathSize(d) : 0 });
+            items.Add(new CleanItem { Kind = "dir", Target = d, Label = d, AppName = "公共组件", Size = withSize ? AppPaths.PathSize(d) : 0 });
 
         foreach (var runKey in AppCatalog.RunKeys)
         {
             foreach (var (name, value) in RegistryService.ReadValues(runKey))
             {
-                if (!Hit($"{name} {value}", new[] { "360", "qhsafe", "qihu" })) continue;
+                if (!Hit($"{name} {value}", AppCatalog.StartupKeywords)) continue;
                 items.Add(new CleanItem
                 {
-                    Kind = "registry", Target = $"{runKey}::{name}", Label = name, AppName = "360 开机启动项",
+                    Kind = "registry", Target = $"{runKey}::{name}", Label = name, AppName = "开机启动项",
                     Extra = { ["value_name"] = name },
                 });
             }
         }
 
-        foreach (var t in _snap.Tasks.Where(t => Hit(t, new[] { "360", "qhsafe" })))
-            items.Add(new CleanItem { Kind = "task", Target = t, Label = t, AppName = "360 计划任务" });
+        foreach (var t in _snap.Tasks.Where(t => Hit(t, AppCatalog.TaskKeywords)))
+            items.Add(new CleanItem { Kind = "task", Target = t, Label = t, AppName = "计划任务" });
 
         return items;
     }
@@ -153,7 +153,7 @@ public sealed class Scanner
         foreach (var drive in new[] { "D:\\", "E:\\", "F:\\" })
         {
             if (!Directory.Exists(drive)) continue;
-            foreach (var name in new[] { "360", "Program Files", "Program Files (x86)" })
+            foreach (var name in new[] { "360", "2345", "Program Files", "Program Files (x86)" })
             {
                 var p = Path.Combine(drive, name);
                 if (Directory.Exists(p)) roots.Add(p);
@@ -217,8 +217,8 @@ public sealed class Scanner
             foreach (var p in app.Processes.Where(p => procs.Contains(p)))
                 items.Add(new CleanItem { Kind = "process", Target = p, Label = p, AppKey = app.Key, AppName = app.Name });
 
-        foreach (var svc in _snap.Services.Where(s => Hit(s, new[] { "360", "qhsafe", "zhudongfangyu" })))
-            items.Add(new CleanItem { Kind = "service", Target = svc, Label = svc, AppName = "360 服务" });
+        foreach (var svc in _snap.Services.Where(s => Hit(s, AppCatalog.ServiceKeywords)))
+            items.Add(new CleanItem { Kind = "service", Target = svc, Label = svc, AppName = "服务" });
 
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var d in AppCatalog.CommonDirs().Where(d => !string.IsNullOrEmpty(d) && Directory.Exists(d) && seen.Add(d)))
@@ -231,7 +231,7 @@ public sealed class Scanner
         foreach (var runKey in AppCatalog.RunKeys)
             foreach (var (name, value) in RegistryService.ReadValues(runKey))
             {
-                if (!Hit($"{name} {value}", new[] { "360", "qhsafe", "qihu" })) continue;
+                if (!Hit($"{name} {value}", AppCatalog.StartupKeywords)) continue;
                 items.Add(new CleanItem
                 {
                     Kind = "registry", Target = $"{runKey}::{name}", Label = name, AppName = "开机启动项",
@@ -239,7 +239,7 @@ public sealed class Scanner
                 });
             }
 
-        foreach (var t in _snap.Tasks.Where(t => Hit(t, new[] { "360", "qhsafe" })))
+        foreach (var t in _snap.Tasks.Where(t => Hit(t, AppCatalog.TaskKeywords)))
             items.Add(new CleanItem { Kind = "task", Target = t, Label = t, AppName = "残留任务" });
 
         foreach (var sc in EnumerateShortcuts())
@@ -293,7 +293,7 @@ public sealed class Scanner
                 if (dir.Count(c => c == '\\') - baseDepth >= 3) continue;
                 foreach (var f in files)
                 {
-                    if (f.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase) && Hit(Path.GetFileName(f), new[] { "360" }))
+                    if (f.EndsWith(".lnk", StringComparison.OrdinalIgnoreCase) && Hit(Path.GetFileName(f), AppCatalog.ShortcutKeywords))
                         found.Add(f);
                 }
                 foreach (var d in subdirs) stack.Push(d);

@@ -193,7 +193,7 @@ public sealed class CleanerEngine
 
         var notes = new List<string>();
         var (killed, others) = ForceRemove.ReleaseHolders(path, _logger);
-        if (killed.Count > 0) notes.Add($"结束 {killed.Count} 个 360 占用进程");
+        if (killed.Count > 0) notes.Add($"结束 {killed.Count} 个占用进程");
         if (others.Count > 0) notes.Add("当前被 " + string.Join("、", others.Distinct().Take(3)) + " 占用");
 
         _logger("  接管所有权（icacls 重置 + takeown）");

@@ -54,9 +54,16 @@ public static class AppCatalog
         "360safe", "360sd", "360se", "360chrome", "360zip", "360drvmgr",
         "360softmgr", "360yunpan", "360game", "360mobile", "360ys",
         "360wallpaper", "qhsafe", "zhudongfangyu", "奇虎", "360安全",
+        "2345", "haozip", "pcsafe", "2345explorer", "2345chrome", "2345pic", "2345ime",
     };
 
-    public static readonly string[] FileKeywords = { "360", "qhsafe", "qihu" };
+    public static readonly string[] FileKeywords = { "360", "qhsafe", "qihu", "2345", "haozip" };
+
+    public static readonly string[] UninstallKeywords = { "360", "奇虎", "qihu", "qhsafe", "2345", "haozip", "好压" };
+    public static readonly string[] StartupKeywords = { "360", "qhsafe", "qihu", "2345", "haozip", "pcsafe" };
+    public static readonly string[] TaskKeywords = { "360", "qhsafe", "2345", "haozip" };
+    public static readonly string[] ServiceKeywords = { "360", "qhsafe", "zhudongfangyu", "2345", "pcsafe" };
+    public static readonly string[] ShortcutKeywords = { "360", "2345", "好压", "看图王" };
 
     public static List<string> CommonDirs() => new()
     {
@@ -77,6 +84,16 @@ public static class AppCatalog
         Path.Combine(AppPaths.LocalAppData, "360ChromeX"),
         Path.Combine(AppPaths.LocalAppData, "360YunPan"),
         Path.Combine(AppPaths.LocalAppData, "360Wallpaper"),
+        Path.Combine(AppPaths.ProgramFilesX86, "2345Soft"),
+        Path.Combine(AppPaths.ProgramFiles, "2345Soft"),
+        Path.Combine(AppPaths.ProgramData, "2345"),
+        Path.Combine(AppPaths.AppData, "2345"),
+        Path.Combine(AppPaths.LocalAppData, "2345"),
+        Path.Combine(AppPaths.ProgramFilesX86, "HaoZip"),
+        Path.Combine(AppPaths.LocalAppData, "2345Explorer"),
+        Path.Combine(AppPaths.LocalAppData, "2345Chrome"),
+        Path.Combine(AppPaths.LocalAppData, "2345Pic"),
+        Path.Combine(AppPaths.LocalAppData, "2345Ime"),
     };
 
     public static List<string> ScanExcludes() => new()
@@ -100,6 +117,11 @@ public static class AppCatalog
         Path.Combine(AppPaths.AppData, "360"),
         Path.Combine(AppPaths.LocalAppData, "360safe"),
         Path.Combine(AppPaths.LocalAppData, "360"),
+        Path.Combine(AppPaths.ProgramFilesX86, "2345Soft"),
+        Path.Combine(AppPaths.ProgramFiles, "2345Soft"),
+        Path.Combine(AppPaths.ProgramData, "2345"),
+        Path.Combine(AppPaths.AppData, "2345"),
+        Path.Combine(AppPaths.LocalAppData, "2345"),
         AppPaths.Desktop,
         Path.Combine(AppPaths.UserProfile, "Downloads"),
         Path.Combine(AppPaths.UserProfile, "Documents"),
@@ -324,6 +346,78 @@ public static class AppCatalog
             Regs = { @"HKCU\Software\BirdWallpaper" },
             Shortcuts = { "小鸟壁纸" },
             Keywords = { "小鸟壁纸", "birdwallpaper" },
+        },
+        new()
+        {
+            Key = "2345safe", Name = "2345 安全卫士", Desc = "卫士主程序、托盘与守护组件",
+            Processes = { "2345Safe.exe", "2345Svc.exe", "2345Update.exe", "PcSafe.exe", "SafeHelper.exe" },
+            Dirs = { Path.Combine(AppPaths.ProgramFilesX86, "2345Soft"), Path.Combine(AppPaths.ProgramFiles, "2345Soft"), Path.Combine(AppPaths.ProgramData, "2345"), Path.Combine(AppPaths.AppData, "2345"), Path.Combine(AppPaths.LocalAppData, "2345") },
+            Regs = { @"HKLM\SOFTWARE\WOW6432Node\2345", @"HKLM\SOFTWARE\2345", @"HKCU\Software\2345" },
+            Shortcuts = { "2345安全卫士", "2345安全卫士极速版" },
+            Keywords = { "2345安全卫士", "2345safe" },
+        },
+        new()
+        {
+            Key = "2345explorer", Name = "2345 加速浏览器", Desc = "浏览器主程序与用户数据",
+            Processes = { "2345Explorer.exe" },
+            Dirs = { Path.Combine(AppPaths.ProgramFilesX86, "2345Explorer"), Path.Combine(AppPaths.LocalAppData, "2345Explorer") },
+            Regs = { @"HKCU\Software\2345Explorer", @"HKLM\SOFTWARE\WOW6432Node\2345Explorer" },
+            Shortcuts = { "2345浏览器", "2345加速浏览器" },
+            Keywords = { "2345浏览器", "2345explorer" },
+        },
+        new()
+        {
+            Key = "2345chrome", Name = "2345 极速浏览器", Desc = "极速浏览器内核与缓存目录",
+            Processes = { "2345Chrome.exe" },
+            Dirs = { Path.Combine(AppPaths.ProgramFilesX86, "2345Chrome"), Path.Combine(AppPaths.LocalAppData, "2345Chrome") },
+            Regs = { @"HKCU\Software\2345Chrome" },
+            Shortcuts = { "2345极速浏览器" },
+            Keywords = { "2345极速浏览器", "2345chrome" },
+        },
+        new()
+        {
+            Key = "haozip", Name = "2345 好压压缩", Desc = "压缩软件本体与右键菜单扩展",
+            Processes = { "HaoZipC.exe", "HaoZip.exe", "2345HaoZip.exe" },
+            Dirs = { Path.Combine(AppPaths.ProgramFilesX86, "HaoZip"), Path.Combine(AppPaths.ProgramFilesX86, "2345HaoZip") },
+            Regs = { @"HKLM\SOFTWARE\WOW6432Node\HaoZip", @"HKCU\Software\HaoZip" },
+            Shortcuts = { "好压", "2345压缩" },
+            Keywords = { "好压", "haozip", "2345压缩" },
+        },
+        new()
+        {
+            Key = "2345pic", Name = "2345 看图王", Desc = "看图客户端与图库缓存",
+            Processes = { "2345Pic.exe", "PicViewer.exe" },
+            Dirs = { Path.Combine(AppPaths.ProgramFilesX86, "2345Pic"), Path.Combine(AppPaths.LocalAppData, "2345Pic") },
+            Regs = { @"HKCU\Software\2345Pic" },
+            Shortcuts = { "2345看图王", "看图王" },
+            Keywords = { "2345看图王", "2345pic" },
+        },
+        new()
+        {
+            Key = "2345ime", Name = "2345 王牌输入法", Desc = "输入法主程序与配置缓存",
+            Processes = { "2345Ime.exe", "2345ImeHelper.exe" },
+            Dirs = { Path.Combine(AppPaths.ProgramFilesX86, "2345Ime"), Path.Combine(AppPaths.LocalAppData, "2345Ime") },
+            Regs = { @"HKCU\Software\2345Ime" },
+            Shortcuts = { "2345输入法", "王牌输入法" },
+            Keywords = { "2345输入法", "2345ime", "王牌输入法" },
+        },
+        new()
+        {
+            Key = "2345softmgr", Name = "2345 软件管家", Desc = "软件分发与升级组件",
+            Processes = { "2345SoftMgr.exe" },
+            Dirs = { Path.Combine(AppPaths.ProgramFilesX86, "2345SoftMgr") },
+            Regs = { @"HKLM\SOFTWARE\WOW6432Node\2345SoftMgr" },
+            Shortcuts = { "2345软件管家" },
+            Keywords = { "2345软件管家", "2345softmgr" },
+        },
+        new()
+        {
+            Key = "2345game", Name = "2345 游戏大厅", Desc = "游戏盒子与下载缓存",
+            Processes = { "GameHall_2345.exe", "2345Game.exe" },
+            Dirs = { Path.Combine(AppPaths.LocalAppData, "GameHall_2345"), Path.Combine(AppPaths.ProgramFilesX86, "2345Game") },
+            Regs = { @"HKCU\Software\GameHall_2345" },
+            Shortcuts = { "2345游戏大厅", "2345游戏" },
+            Keywords = { "2345游戏", "2345game" },
         },
     };
 }

@@ -38,7 +38,7 @@ public static class Solutions
             return new Solution("REBOOT_DELETE", "已登记重启删除", "info", new[]
             {
                 "文件句柄还被内核占着，删除动作已挂到下次开机执行",
-                "重启后系统会在 360 自保护加载之前完成删除",
+                "重启后系统会在软件自保护加载之前完成删除",
                 "重启后打开本工具点「复查」确认是否清干净",
             });
         }
@@ -48,17 +48,17 @@ public static class Solutions
             return new Solution("ACL_TAKEOVER", "权限被拒绝", "warn", new[]
             {
                 "工具会自动接管所有权并给 Administrators 完全控制，然后重试",
-                "仍失败说明 360 自保护在内核层拦写，先在 360 主界面关闭「自我保护」",
+                "仍失败说明该软件自保护在内核层拦写，先在对应主界面关闭「自我保护」",
                 "关不掉就重启进安全模式，在安全模式下再跑一次一条龙",
             });
         }
 
         if (Hit(detail, Driver))
         {
-            return new Solution("KERNEL_PROTECT", "被 360 内核驱动拦截", "danger", new[]
+            return new Solution("KERNEL_PROTECT", "被内核驱动拦截", "danger", new[]
             {
-                "ZhuDongFangYu / 360FsFlt / 360AntiHijack 在驱动层拒绝删除",
-                "先退出 360 托盘并关闭自我保护，再执行清理",
+                "自保护驱动（如 ZhuDongFangYu / 360FsFlt / 360AntiHijack）在驱动层拒绝删除",
+                "先退出对应软件托盘并关闭自我保护，再执行清理",
                 "已有残留驱动就进安全模式清理，正常模式下删不掉是预期行为",
             });
         }
@@ -67,7 +67,7 @@ public static class Solutions
         {
             return new Solution("FILE_LOCKED", "文件被占用", "warn", new[]
             {
-                "在任务管理器结束对应的 360 进程，或用工具里的「结束占用」",
+                "在任务管理器结束对应进程，或用工具里的「结束占用」",
                 "关掉正在占用该目录的程序（解压软件、浏览器、壁纸客户端）",
                 "仍占用就点清理，工具会把删除登记到下次重启",
             });

@@ -38,7 +38,7 @@
             <Border BackgroundColor="{StaticResource AppCardColor}" Stroke="{StaticResource AppBorderBrush}" Padding="10,8" Margin="0,12,0,0" VerticalOptions="End">
                 <VerticalStackLayout Spacing="3">
                     <Label x:Name="BootCardTitle" FontSize="11" FontAttributes="Bold" />
-                    <Label Text="支持 360 系软件与小鸟壁纸" FontSize="10" TextColor="{StaticResource AppTextSubColor}" />
+                    <Label Text="支持 360 / 2345 系软件与小鸟壁纸" FontSize="10" TextColor="{StaticResource AppTextSubColor}" />
                     <Label Text="未检测到的不展示" FontSize="10" TextColor="{StaticResource AppTextSubColor}" />
                 </VerticalStackLayout>
             </Border>
@@ -108,8 +108,8 @@
                 <Border BackgroundColor="{StaticResource AppCardColor}" Stroke="{StaticResource AppBorderBrush}" Padding="12,10">
                     <VerticalStackLayout Spacing="8">
                         <Label Text="四个步骤按顺序跑，中间不自动重启，每一步都要你确认。" FontSize="11" TextColor="{StaticResource AppTextSubColor}" />
-                        <Label Text="1  全量拆解：本机检测到的全部 360 系软件，进程→服务→目录→注册表逐层清" FontSize="10" TextColor="{StaticResource AppTextSubColor}" />
-                        <Label Text="2  深度扫盘：扫描各盘一级 360 目录、两处 Temp、桌面与下载目录" FontSize="10" TextColor="{StaticResource AppTextSubColor}" />
+                        <Label Text="1  全量拆解：本机检测到的全部 360 / 2345 系软件，进程→服务→目录→注册表逐层清" FontSize="10" TextColor="{StaticResource AppTextSubColor}" />
+                        <Label Text="2  深度扫盘：扫描各盘一级 360 / 2345 目录、两处 Temp、桌面与下载目录" FontSize="10" TextColor="{StaticResource AppTextSubColor}" />
                         <Label Text="3  残余复核：残留项列进小窗，逐项勾选后再删，失败项给解决方案" FontSize="10" TextColor="{StaticResource AppTextSubColor}" />
                         <Label Text="4  开机巡检：可选登记，下次登录在右下角复查一次，结果仍需你确认" FontSize="10" TextColor="{StaticResource AppTextSubColor}" />
                     </VerticalStackLayout>
@@ -143,7 +143,7 @@
                 <Border BackgroundColor="{StaticResource AppCardColor}" Stroke="{StaticResource AppBorderBrush}" Padding="14,12">
                     <VerticalStackLayout Spacing="8">
                         <Label x:Name="AboutVersion" FontSize="13" FontAttributes="Bold" />
-                        <Label Text="Windows 深度卸载与残留清理 · 第三方独立工具，与奇虎 360 无关联" FontSize="11" TextColor="{StaticResource AppTextSubColor}" />
+                        <Label Text="Windows 深度卸载与残留清理 · 第三方独立工具，与奇虎 360、2345 均无关联" FontSize="11" TextColor="{StaticResource AppTextSubColor}" />
                         <Label x:Name="AboutLogDir" FontSize="10" />
                         <HorizontalStackLayout Spacing="10">
                             <Button x:Name="UpdateButton" Style="{StaticResource GhostButton}" Text="检查更新" Clicked="OnCheckUpdateClick" />
@@ -181,7 +181,7 @@
             <Border BackgroundColor="{StaticResource AppCardColor}" Stroke="{StaticResource AppBorderBrush}" Padding="12,10">
                 <VerticalStackLayout Spacing="6">
                     <Label Text="解决方案" FontSize="11" TextColor="{StaticResource AppTextSubColor}" />
-                    <Label x:Name="SolTitle" Text="被 360 内核驱动拦截" FontSize="12" FontAttributes="Bold" TextColor="{StaticResource AppDangerColor}" />
+                    <Label x:Name="SolTitle" Text="被内核驱动拦截" FontSize="12" FontAttributes="Bold" TextColor="{StaticResource AppDangerColor}" />
                     <VerticalStackLayout x:Name="SolBullets" Spacing="4" />
                 </VerticalStackLayout>
             </Border>

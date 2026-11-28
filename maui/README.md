@@ -39,4 +39,4 @@ dotnet publish ResidualCleaner.Maui.csproj -c Release -f net8.0-windows10.0.1904
 
 ## 许可
 
-与仓库根目录 LICENSE 一致；本工具为第三方独立清理程序，与奇虎 360 无任何关联。
+与仓库根目录 LICENSE 一致；本工具为第三方独立清理程序，与奇虎 360、2345 均无任何关联。

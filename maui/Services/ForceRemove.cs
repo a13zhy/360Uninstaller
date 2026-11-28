@@ -95,8 +95,9 @@ public static class ForceRemove
         {
             var image = ProcessImage(pid).IfEmpty(name);
             var low = image.ToLowerInvariant();
-            var is360 = low.Contains("360") || low.Contains("qhsafe") || low.Contains("qihu");
-            if (!is360)
+            var isTarget = low.Contains("360") || low.Contains("qhsafe") || low.Contains("qihu")
+                        || low.Contains("2345") || low.Contains("haozip") || low.Contains("pcsafe") || low.Contains("safehelper");
+            if (!isTarget)
             {
                 others.Add(Path.GetFileName(image) ?? $"PID {pid}");
                 continue;
