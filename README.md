@@ -1,84 +1,42 @@
 # 残留清理卫士 ResidualCleaner
 
-Windows 10 / 11 上用于深度卸载 360 系软件、清理安装残留的桌面工具。不调官方卸载器，直接逐项拆除进程、服务、计划任务、启动项、目录、DLL 与驱动、注册表、快捷方式；无权访问的文件先接管所有权再强删，仍删不掉的登记到下次开机前由系统删除。
-
-![主界面](https://aka.doubaocdn.com/s/iU4zbZMpVC)
-
-![一条龙 · 全家桶清除](https://aka.doubaocdn.com/s/hz6hJ1VUcs)
-
-![残余项目小窗](https://aka.doubaocdn.com/s/rizEbVqN82)
-
-![开机巡检小窗 · 扫描中](https://aka.doubaocdn.com/s/SdaxXdG5RG)
-
-![开机巡检小窗 · 结果](https://aka.doubaocdn.com/s/2KJ6or3b7y)
+Windows 10 / 11 上深度卸载 360 系软件、清理安装残留的桌面工具。当前为 .NET 8 MAUI 重写版，源码位于 `maui/` 目录。
 
 ## 当前版本
 
-**v1.3.0.261118**（火绒风紧凑界面 · 只列真机已装 · 单项/一条龙分流 · 技术面板实时交底 · 推广位）
+**v1.3.1.261127**（.NET MAUI / Windows）
 
-## 这一版改了什么
+## 源码结构
 
-- **界面整体重写**：主窗从 1240×860 收到 **940×608**，三栏（导航 / 工作区 / 状态栏）；残余小窗 640×440，巡检小窗 344×176；浅色细线、方角、无卡片阴影，配色按 Windows 浅色模式对齐。
-- **只显示装了的**：启动后按 进程 → 目录 → 注册表 → 服务 → 卸载登记项 逐条找证据，22 款里没装的不出现在列表；一个都没有时给空态说明。
-- **两种模式分开**：`单项卸载`只清勾选的几款、不扫盘；`一条龙 · 全家桶清除`才含整盘深度扫描、残余复查和开机巡检。
-- **技术面板**：卸载时右侧实时显示这一步在用什么手段（`taskkill /T /F`、`sc stop / delete`、`takeown + icacls`、`RestartManager`、`PendingFileRenameOperations` 等），不再是一句“正在清理”。
-- **失败有下一步**：权限被拒 / 文件被占用 / 内核驱动拦截 / 注册表被自保护挡住，各给三条可照做的方案，不教绕过安全机制。
-- **推广位**：公告新支持卸载的产品（360 AI 办公、小鸟壁纸），点一下直接在列表里勾上；只放自家公告，不接第三方投放。
-- **品牌资源**：图标改成蓝盾，界面图标全部换成本地 SVG，扫描动图由脚本生成（无网络请求）。
-
-## 功能
-
-- **扫描**：注册表卸载项、安装目录、进程、服务、驱动、计划任务、启动项、DLL、快捷方式，覆盖 22 款 360 组件与小鸟壁纸。
-- **卸载**：按固定管线拆除（进程 → 服务 → 计划任务 → 启动项 → 目录 → 文件/DLL → 注册表 → 快捷方式 → 复查），删注册表前自动备份，失败项归类归因。
-- **一条龙清除**：整盘枚举一级 360 目录、Program Files、ProgramData、AppData、桌面/下载/文档与临时目录；命中目录整体一项，父子去重。
-- **强力删除**：常规删除 → 结束占用进程 + `takeown` / `icacls` 接管 → 仍被锁则写 `PendingFileRenameOperations`，下次开机由系统删除。
-- **开机巡检**：可登记下次登录时在右下角弹出巡检小窗（344×176，带扫描动图），列出残余并等你确认后清理；默认不启用，随时可关。
-- **重启询问**：清理完成才问要不要重启，选“是”执行 20 秒倒计时，`shutdown /a` 可撤销。
-- **真实图标**：安装目录里能找到 exe / ico 的，列表直接显示程序自己的图标。
-- **检查更新**：从 GitHub Releases 拉版本，可下载并静默安装后重启；托盘常驻，关窗不退出。
-
-## 安全边界
-
-- 不做后台静默批量删除：每一项都要你先看过、再确认；巡检扫到的东西同样要确认。
-- 不自动重启、不做重启循环、不注册后台服务。
-- 不默认开机自启。开机巡检只在你显式勾选并确认后登记（优先计划任务，最高权限启动），界面里一键可撤销。
-- 被内核自保护锁住的文件只登记“下次开机由系统删除”，不反复硬干。
-
-## 使用
-
-1. 下载 Release 里的 `ResidualCleaner.exe` 或 `ResidualCleaner-v1.3.0.261118-win64.zip`，双击运行（清单里带 `requireAdministrator`，启动即提权）。
-2. 主界面只会列出本机真装了的 360 组件；先选模式：单项卸载 or 一条龙。
-3. 单项：勾几款 → “卸载选中”；一条龙：直接点“开始一条龙清除”，中间不自动重启。
-4. 清完弹残余小窗，勾选后删除；之后会问要不要重启。
-5. 想让它下次开机再复查一遍，在“一条龙”页勾“登记开机巡检”，或托盘里打开开关。
-
-> 需要管理员权限才能动服务和受保护目录。非管理员启动时顶栏“管理员”徽章为灰，建议右键以管理员身份重新运行。
+- `maui/`：.NET 8 MAUI 工程（C# / XAML），包含 Models、Data、Services、ViewModels、Platforms、Resources
 
 ## 从源码构建
 
+前置条件：.NET 8 SDK，并已安装 `maui-windows` workload。
+
 ```powershell
-python -m venv .venv
-.venv\Scripts\pip install PySide6==6.12.0 Pillow pyinstaller==6.22.3
-.venv\Scripts\python tools\make_icon.py
-.venv\Scripts\pyinstaller --noconfirm --clean --onefile --windowed --uac-admin ^
-  --name ResidualCleaner --icon assets\app_icon.ico ^
-  --add-data "assets;assets" main.py
+cd maui
+dotnet build ResidualCleaner.Maui.csproj -f net8.0-windows10.0.19041.0 -p:Platform=x64
+dotnet publish ResidualCleaner.Maui.csproj -c Release -f net8.0-windows10.0.19041.0 -p:Platform=x64
 ```
 
-`assets/` 不提交，图标、SVG 与扫描 GIF 由 `tools/make_icon.py` 现场生成，CI 同样如此。
+## 运行要求
 
-## 界面尺寸
+- Windows 10 / 11 64 位（最低 10.0.17763），管理员权限。
+- 需安装 .NET 8 Desktop Runtime (x64)；发布包为框架依赖，需解压整个目录运行，不能只拷贝单个 exe。
 
-- 主窗 940×608（最小 880×556），左导航 168px、右状态栏 264px；
-- 残余小窗 640×440（最小 600×400）；
-- 巡检小窗 344×176，固定在右下角，可拖动、可关闭。
+## 已知边界
 
-## 安装包与产物
+- 托盘常驻、独立开机巡检小窗尚未在 MAUI 版接线；残余项目目前在主窗覆盖层呈现。
+- macOS（MacCatalyst）目录与 360 for Mac 残留规则仅为预留底稿，未在 Mac 上构建、签名或实测。
+- 360 内核自保护驱动（ZhuDongFangYu / 360FsFlt / 360AntiHijack 等）在内核层拦写，正常模式删不掉属预期，需先关闭自保护或进安全模式。
 
-- `ResidualCleaner.exe`：单文件，内嵌 `--uac-admin` 清单；
-- `ResidualCleaner-v1.3.0.261118-win64.zip`：exe + README + RELEASE_NOTES + LICENSE；
-- `ResidualCleaner-v1.3.0.261118-src.zip`：完整源码（不含 `assets/` 生成物）。
+## 安全边界
+
+- 不做后台静默批量删除，清理结果必须你确认后才执行。
+- 不默认开机自启、不自动重启、不注册后台服务。
+- 被锁住的文件只登记“下次开机由系统删除”，不反复硬删。
 
 ## 许可
 
-个人使用，按现状提供，删错东西自己负责（删前会列清单让你确认）。与奇虎 360 无任何关系，仅清理其残留。
+见 `LICENSE`。本工具为第三方独立程序，与奇虎 360 无任何关联，删除操作不可恢复，使用前请确认重要数据已备份。

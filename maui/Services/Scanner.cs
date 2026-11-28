@@ -95,7 +95,7 @@ public sealed class Scanner
         foreach (var t in _snap.Tasks.Where(t => app.Tasks.Any(k => t.Contains(k, StringComparison.OrdinalIgnoreCase))))
             items.Add(new CleanItem { Kind = "task", Target = t, Label = t, AppKey = app.Key, AppName = app.Name });
 
-        foreach (var sc in EnumerateShortcuts().Where(sc => app.Shortcuts.Any(k => Path.GetFileName(sc).Contains(k, StringComparison.OrdinalIgnoreCase)))))
+        foreach (var sc in EnumerateShortcuts().Where(sc => app.Shortcuts.Any(k => Path.GetFileName(sc).Contains(k, StringComparison.OrdinalIgnoreCase))))
             items.Add(new CleanItem { Kind = "shortcut", Target = sc, Label = Path.GetFileName(sc), AppKey = app.Key, AppName = app.Name, Size = FileSize(sc) });
 
         return items;

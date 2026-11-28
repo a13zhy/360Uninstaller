@@ -1,11 +1,5 @@
 namespace ResidualCleaner.Maui.Data;
 
-/// <summary>
-/// macOS 平台预留规则。当前工程仅编译 Windows 目标，本文件不参与清理执行，
-/// 只作为将来在 Mac 上构建 .NET MAUI (MacCatalyst) 目标时的残留规则底稿。
-/// 注意：以下 Bundle ID、应用包名与残留路径均需在真实 Mac 上探查核对，
-/// 未经验证，不能直接用于删除。
-/// </summary>
 public static class MacCatalog
 {
     public const string HomeAppSupport = "~/Library/Application Support";

@@ -3,7 +3,6 @@
 <ResourceDictionary
     xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
     xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml">
-
     <Color x:Key="AppBackgroundColor">#F5F6F8</Color>
     <Color x:Key="AppCardColor">#FFFFFF</Color>
     <Color x:Key="AppBorderColor">#E2E5EA</Color>
@@ -12,7 +11,6 @@
     <Color x:Key="AppAccentColor">#2B7CF6</Color>
     <Color x:Key="AppSuccessColor">#2E9E5B</Color>
     <Color x:Key="AppDangerColor">#D84A4A</Color>
-
     <SolidColorBrush x:Key="AppBackgroundBrush" Color="#F5F6F8" />
     <SolidColorBrush x:Key="AppCardBrush" Color="#FFFFFF" />
     <SolidColorBrush x:Key="AppBorderBrush" Color="#E2E5EA" />
@@ -21,7 +19,6 @@
     <SolidColorBrush x:Key="AppAccentBrush" Color="#2B7CF6" />
     <SolidColorBrush x:Key="AppSuccessBrush" Color="#2E9E5B" />
     <SolidColorBrush x:Key="AppDangerBrush" Color="#D84A4A" />
-
     <Color x:Key="Primary">#2B7CF6</Color>
     <Color x:Key="PrimaryDark">#1B5FC4</Color>
     <Color x:Key="White">White</Color>
@@ -32,7 +29,6 @@
     <Color x:Key="Gray400">#919191</Color>
     <Color x:Key="Gray500">#6E6E6E</Color>
     <Color x:Key="Gray900">#212121</Color>
-
     <SolidColorBrush x:Key="WhiteBrush" Color="{StaticResource White}" />
     <SolidColorBrush x:Key="BlackBrush" Color="{StaticResource Black}" />
 </ResourceDictionary>

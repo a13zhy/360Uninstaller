@@ -1,9 +1,6 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
-
+<Project Sdk="Microsoft.NET.Sdk">
 	<PropertyGroup>
 		<TargetFrameworks>net8.0-windows10.0.19041.0</TargetFrameworks>
-		<!-- 预留跨平台：将来有 Mac 环境再追加 net8.0-maccatalyst；Android/iOS/Tizen 暂不参与编译 -->
-
 		<OutputType>Exe</OutputType>
 		<RootNamespace>ResidualCleaner.Maui</RootNamespace>
 		<AssemblyName>ResidualCleaner</AssemblyName>
@@ -12,16 +9,13 @@
 		<ImplicitUsings>enable</ImplicitUsings>
 		<Nullable>enable</Nullable>
 		<WindowsPackageType>None</WindowsPackageType>
-
 		<ApplicationTitle>残留清理卫士</ApplicationTitle>
 		<ApplicationId>com.a13zhy.residualcleaner</ApplicationId>
 		<ApplicationDisplayVersion>1.3.1</ApplicationDisplayVersion>
 		<ApplicationVersion>261127</ApplicationVersion>
-
 		<SupportedOSPlatformVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</SupportedOSPlatformVersion>
 		<TargetPlatformMinVersion Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">10.0.17763.0</TargetPlatformMinVersion>
 	</PropertyGroup>
-
 	<ItemGroup>
 		<MauiIcon Include="Resources\AppIcon\appicon.svg" ForegroundFile="Resources\AppIcon\appiconfg.svg" Color="#1F6FEB" />
 		<MauiSplashScreen Include="Resources\Splash\splash.svg" Color="#1F6FEB" BaseSize="128,128" />
@@ -29,11 +23,9 @@
 		<MauiFont Include="Resources\Fonts\*" />
 		<MauiAsset Include="Resources\Raw\**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
 	</ItemGroup>
-
 	<ItemGroup>
 		<PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
 		<PackageReference Include="Microsoft.Maui.Controls.Compatibility" Version="$(MauiVersion)" />
 		<PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="8.0.1" />
 	</ItemGroup>
-
 </Project>

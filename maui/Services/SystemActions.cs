@@ -3,10 +3,6 @@ using System.Text;
 
 namespace ResidualCleaner.Maui.Services;
 
-/// <summary>
-/// 系统动作：只在用户确认后安排延迟重启，不自动重启、不做定时循环；
-/// 延迟窗口内可用 shutdown /a 撤销。
-/// </summary>
 public static class SystemActions
 {
     public static (bool Ok, string Detail) ScheduleReboot(int delaySeconds = 20)

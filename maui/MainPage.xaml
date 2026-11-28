@@ -4,7 +4,6 @@
              xmlns:vm="clr-namespace:ResidualCleaner.Maui.ViewModels"
              x:Class="ResidualCleaner.Maui.MainPage"
              Title="残留清理卫士">
-
     <Grid BackgroundColor="{StaticResource AppBackgroundColor}" Padding="12" RowSpacing="10" ColumnSpacing="10">
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="140" />
@@ -16,8 +15,6 @@
             <RowDefinition Height="*" />
             <RowDefinition Height="26" />
         </Grid.RowDefinitions>
-
-        <!-- 顶部标题栏 -->
         <Grid Grid.Row="0" Grid.Column="1" Grid.ColumnSpan="2" ColumnSpacing="10" VerticalOptions="Center">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
@@ -34,13 +31,10 @@
                 <Label Text="管理员" TextColor="{StaticResource AppSuccessColor}" FontSize="11" />
             </Border>
         </Grid>
-
-        <!-- 左侧导航 -->
         <VerticalStackLayout Grid.Row="1" Grid.Column="0" Spacing="4">
             <Button x:Name="NavClean" Style="{StaticResource NavButton}" Text="软件清理" Clicked="OnNavClick" CommandParameter="Clean" />
             <Button x:Name="NavBundle" Style="{StaticResource NavButton}" Text="一条龙" Clicked="OnNavClick" CommandParameter="Bundle" />
             <Button x:Name="NavAbout" Style="{StaticResource NavButton}" Text="关于与更新" Clicked="OnNavClick" CommandParameter="About" />
-
             <Border BackgroundColor="{StaticResource AppCardColor}" Stroke="{StaticResource AppBorderBrush}" Padding="10,8" Margin="0,12,0,0" VerticalOptions="End">
                 <VerticalStackLayout Spacing="3">
                     <Label x:Name="BootCardTitle" FontSize="11" FontAttributes="Bold" />
@@ -49,11 +43,7 @@
                 </VerticalStackLayout>
             </Border>
         </VerticalStackLayout>
-
-        <!-- 中间主区域 -->
         <Grid Grid.Row="1" Grid.Column="1">
-
-            <!-- 软件清理面板 -->
             <VerticalStackLayout x:Name="CleanPanel" Spacing="10">
                 <Grid ColumnSpacing="10" VerticalOptions="Center">
                     <Grid.ColumnDefinitions>
@@ -68,8 +58,6 @@
                     <Button Grid.Column="1" x:Name="RescanButton" Style="{StaticResource GhostButton}" Text="重新检测" Clicked="OnRescanClick" />
                     <Button Grid.Column="2" x:Name="SelectAllLink" BackgroundColor="Transparent" TextColor="{StaticResource AppAccentColor}" Padding="8,7" Text="全选" Clicked="OnSelectAll" />
                 </Grid>
-
-                <!-- 分段模式条 -->
                 <Grid ColumnSpacing="2" BackgroundColor="{StaticResource AppCardColor}" Padding="2">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
@@ -79,7 +67,6 @@
                     <Button Grid.Column="1" x:Name="ModeBundleBtn" Text="一条龙·全家桶清除" CornerRadius="2" Padding="14,8" FontSize="11" Clicked="OnModeSelect" CommandParameter="bundle" />
                 </Grid>
                 <Label x:Name="ModeHint" FontSize="10" TextColor="{StaticResource AppTextSubColor}" />
-
                 <Border BackgroundColor="{StaticResource AppCardColor}" Stroke="{StaticResource AppBorderBrush}" Padding="6,2">
                     <CollectionView x:Name="AppList" SelectionMode="None" BackgroundColor="Transparent">
                         <CollectionView.ItemTemplate>
@@ -105,7 +92,6 @@
                         </CollectionView.ItemTemplate>
                     </CollectionView>
                 </Border>
-
                 <Grid ColumnSpacing="10" VerticalOptions="Center">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
@@ -117,11 +103,8 @@
                     <Button Grid.Column="2" x:Name="ActionButton" Style="{StaticResource PrimaryButton}" Clicked="OnActionClick" />
                 </Grid>
             </VerticalStackLayout>
-
-            <!-- 一条龙面板 -->
             <VerticalStackLayout x:Name="BundlePanel" Spacing="10" IsVisible="False">
                 <Label Text="一条龙·全家桶清除" FontSize="14" FontAttributes="Bold" />
-
                 <Border BackgroundColor="{StaticResource AppCardColor}" Stroke="{StaticResource AppBorderBrush}" Padding="12,10">
                     <VerticalStackLayout Spacing="8">
                         <Label Text="四个步骤按顺序跑，中间不自动重启，每一步都要你确认。" FontSize="11" TextColor="{StaticResource AppTextSubColor}" />
@@ -131,7 +114,6 @@
                         <Label Text="4  开机巡检：可选登记，下次登录在右下角复查一次，结果仍需你确认" FontSize="10" TextColor="{StaticResource AppTextSubColor}" />
                     </VerticalStackLayout>
                 </Border>
-
                 <Border BackgroundColor="{StaticResource AppCardColor}" Stroke="{StaticResource AppBorderBrush}" Padding="12,10">
                     <Grid ColumnSpacing="10">
                         <Grid.ColumnDefinitions>
@@ -148,7 +130,6 @@
                         <Button Grid.Column="1" x:Name="PatrolButton" Style="{StaticResource GhostButton}" Text="立即巡检" Clicked="OnPatrolClick" VerticalOptions="Center" />
                     </Grid>
                 </Border>
-
                 <Grid ColumnSpacing="10" VerticalOptions="Center">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
@@ -158,8 +139,6 @@
                     <Button Grid.Column="1" x:Name="BundleButton" Style="{StaticResource PrimaryButton}" Text="开始一条龙清除" Clicked="OnBundleClick" />
                 </Grid>
             </VerticalStackLayout>
-
-            <!-- 关于面板 -->
             <VerticalStackLayout x:Name="AboutPanel" Spacing="10" IsVisible="False">
                 <Border BackgroundColor="{StaticResource AppCardColor}" Stroke="{StaticResource AppBorderBrush}" Padding="14,12">
                     <VerticalStackLayout Spacing="8">
@@ -178,8 +157,6 @@
                 </Border>
             </VerticalStackLayout>
         </Grid>
-
-        <!-- 右侧栏 -->
         <VerticalStackLayout Grid.Row="1" Grid.Column="2" Spacing="10">
             <Border BackgroundColor="{StaticResource AppCardColor}" Stroke="{StaticResource AppBorderBrush}" Padding="12,10">
                 <VerticalStackLayout Spacing="6">
@@ -201,7 +178,6 @@
                     </ScrollView>
                 </VerticalStackLayout>
             </Border>
-
             <Border BackgroundColor="{StaticResource AppCardColor}" Stroke="{StaticResource AppBorderBrush}" Padding="12,10">
                 <VerticalStackLayout Spacing="6">
                     <Label Text="解决方案" FontSize="11" TextColor="{StaticResource AppTextSubColor}" />
@@ -210,8 +186,6 @@
                 </VerticalStackLayout>
             </Border>
         </VerticalStackLayout>
-
-        <!-- 残余项目覆盖层 -->
         <Border x:Name="ResidualOverlay" Grid.Row="1" Grid.Column="1" IsVisible="False"
                 BackgroundColor="{StaticResource AppCardColor}" Stroke="{StaticResource AppBorderBrush}" Padding="14,12"
                 HorizontalOptions="Fill" VerticalOptions="Fill">
@@ -256,8 +230,6 @@
                 </Grid>
             </VerticalStackLayout>
         </Border>
-
-        <!-- 重启询问条 -->
         <Border x:Name="RebootBar" Grid.Row="1" Grid.Column="1" VerticalOptions="End" Margin="0,0,0,8"
                 BackgroundColor="{StaticResource AppCardColor}" Stroke="{StaticResource AppAccentBrush}" Padding="12,10" IsVisible="False">
             <Grid ColumnSpacing="10">
@@ -274,8 +246,6 @@
                 <Button Grid.Column="2" x:Name="RebootUndo" Style="{StaticResource GhostButton}" Text="撤销" Clicked="OnRebootUndo" IsVisible="False" VerticalOptions="Center" />
             </Grid>
         </Border>
-
-        <!-- 底部日志栏 -->
         <Grid Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2" VerticalOptions="Center">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />

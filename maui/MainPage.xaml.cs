@@ -504,7 +504,7 @@ public partial class MainPage : ContentPage
             var hasUpdate = Updater.IsNewer(release.Tag);
             if (!hasUpdate)
             {
-                UpdateStatus.Text = $"当前已是最新（{AppPaths.AppVersion}")";
+                UpdateStatus.Text = $"当前已是最新（{AppPaths.AppVersion}）";
                 HideUpdateProgress();
                 return;
             }

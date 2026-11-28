@@ -18,10 +18,6 @@ public sealed class Solution
     }
 }
 
-/// <summary>
-/// 失败归因与解决方案：把“删不掉”翻成用户能照做的下一步。
-/// 只给正常系统操作，不提供绕过安全机制的野路子。
-/// </summary>
 public static class Solutions
 {
     private static readonly string[] Denied = ["拒绝访问", "access is denied", "access denied", "0x5", "error 5"];

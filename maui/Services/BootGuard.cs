@@ -4,11 +4,6 @@ using Microsoft.Win32;
 
 namespace ResidualCleaner.Maui.Services;
 
-/// <summary>
-/// 开机巡检登记：优先计划任务（登录触发、最高权限、延迟 20 秒），
-/// 计划任务不可用时退回 HKCU Run 注册表启动项。只在用户明确开启后写入，随时可撤销；
-/// 不注册后台服务、不装驱动。
-/// </summary>
 public static class BootGuard
 {
     private const string TaskName = "ResidualCleanerPatrol";
